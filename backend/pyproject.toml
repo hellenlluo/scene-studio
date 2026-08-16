@@ -1,0 +1,48 @@
+[project]
+name = "scene-studio-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.122.0",
+    "coacd>=1.0.12",
+    "fastapi>=0.141.1",
+    "manifold3d>=3.5.2",
+    "mujoco>=3.11.0",
+    "networkx>=3.6.1",
+    "numpy>=2.5.2",
+    "opencv-python>=5.0.0.93",
+    "pillow>=12.3.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.32",
+    "rtree>=1.4.1",
+    "scipy>=1.18.0",
+    "sqlalchemy>=2.0.52",
+    "trimesh>=5.0.0",
+    "uvicorn[standard]>=0.52.3",
+    "yourdfpy>=0.0.60",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection is expressed as argument defaults by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Query", "fastapi.Body"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"

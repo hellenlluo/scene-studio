@@ -113,3 +113,13 @@ def test_tolerance_is_the_threshold_not_a_suggestion():
     graph = scenes.cabinet_with_overlong_drawer()
     assert not _by_joint(kinematic.run(graph, 0.002))["drawer_top_slide"].passed
     assert _by_joint(kinematic.run(graph, 0.5))["drawer_top_slide"].passed
+
+
+# --- rigid-only scope ---------------------------------------------------------
+
+
+def test_a_rigid_scene_produces_no_sweeps_at_all():
+    """With articulation off every object is jointless, so the kinematic axis has
+    nothing to test. That is NOT_APPLICABLE, not a wall of failures — the
+    distinction the certificate keeps so a rigid scene is not reported as broken."""
+    assert kinematic.run(scenes.rigid_kitchen(), TOL) == []

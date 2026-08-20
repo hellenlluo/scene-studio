@@ -18,6 +18,7 @@ from app.pipeline import articulated, depth, inertia, labeling, reconcile, rigid
 from app.pipeline.base import PipelineContext, cache_key, load_cached, store_cached
 from app.schemas import (
     ExportResult,
+    ReconstructionResult,
     ScaleAnchor,
     SceneSpec,
     SolveWeights,
@@ -69,22 +70,23 @@ def run_pipeline(
         ctx, StageName.LABEL, labeling.LabelResult, lambda: labeling.run(ctx, seg), (seg,), report
     )
 
-    # Part masks need the routing decision, so this second segmentation pass sits
-    # after labelling rather than alongside the first. Cached under the same stage
-    # name — its inputs differ, so its key does too.
-    seg = _run_stage(
-        ctx,
-        StageName.SEGMENT,
-        segment.SegmentResult,
-        lambda: segment.run_parts(ctx, seg, lab),
-        (seg, lab),
-        report,
-    )
+    # Part masks exist only to feed the articulated branch, so both are gated
+    # together. With articulation off, every object is rigid and jointless — which
+    # is a scope decision, not a degradation, and the certificate reports it as
+    # such rather than as a wall of kinematic failures.
+    if ctx.settings.enable_articulation:
+        # Part masks need the routing decision, so this second segmentation pass
+        # sits after labelling rather than alongside the first. Cached under the
+        # same stage name — its inputs differ, so its key does too.
+        seg = _run_stage(
+            ctx,
+            StageName.SEGMENT,
+            segment.SegmentResult,
+            lambda: segment.run_parts(ctx, seg, lab),
+            (seg, lab),
+            report,
+        )
 
-    # Both branches run over the same inputs and each ignores the objects the
-    # router did not send it. The articulated branch is a superset of the rigid
-    # one, so an object it fails on falls back to 4a's output for the same id and
-    # loses actuability rather than the scene.
     rig = _run_stage(
         ctx,
         StageName.RIGID,
@@ -93,14 +95,21 @@ def run_pipeline(
         (seg, lab),
         report,
     )
-    art = _run_stage(
-        ctx,
-        StageName.ARTICULATED,
-        articulated.ReconstructionResult,
-        lambda: articulated.run(ctx, seg, lab),
-        (seg, lab),
-        report,
-    )
+
+    # Both branches run over the same inputs and each ignores the objects the
+    # router did not send it. The articulated branch is a superset of the rigid
+    # one, so an object it fails on falls back to 4a's output for the same id and
+    # loses actuability rather than the scene.
+    art = ReconstructionResult(objects=[])
+    if ctx.settings.enable_articulation:
+        art = _run_stage(
+            ctx,
+            StageName.ARTICULATED,
+            articulated.ReconstructionResult,
+            lambda: articulated.run(ctx, seg, lab),
+            (seg, lab),
+            report,
+        )
 
     graph = _run_stage(
         ctx,

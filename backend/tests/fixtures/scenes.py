@@ -36,7 +36,12 @@ from app.schemas import (
     Vec3,
 )
 
-__all__ = ["cabinet_door_into_table", "cabinet_with_overlong_drawer", "kitchen"]
+__all__ = [
+    "cabinet_door_into_table",
+    "cabinet_with_overlong_drawer",
+    "kitchen",
+    "rigid_kitchen",
+]
 
 PANEL = 0.02  # carcass panel thickness
 
@@ -180,6 +185,28 @@ def kitchen() -> SceneGraph:
             _drawer_joint("drawer_top_slide", "drawer_top", 0.4),
             _drawer_joint("drawer_bottom_slide", "drawer_bottom", 0.4),
         ],
+    )
+    return SceneGraph(objects=[_table(), _mug(), cabinet])
+
+
+def rigid_kitchen() -> SceneGraph:
+    """The same room with articulation switched off — what the pipeline builds today.
+
+    Every object is a single solid part with no joints, which is what the rigid
+    branch produces. Use this for the stability, inertial, scale and cost axes;
+    the articulated fixtures exist for the kinematic axis, which is dormant while
+    `enable_articulation` is False.
+
+    Note the cabinet is one solid box here and that is *fine*. A solid carcass is
+    only a problem when something has to move inside it, so the hollow-container
+    question does not arise in a rigid scene at all.
+    """
+    cabinet = _object(
+        "cabinet",
+        "cabinet",
+        [_part("body", (0.6, 0.6, 0.92), density=550.0)],
+        position=(1.2, 0.0, 0.46),
+        prior_dims=(0.6, 0.6, 0.9),
     )
     return SceneGraph(objects=[_table(), _mug(), cabinet])
 

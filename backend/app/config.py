@@ -53,6 +53,16 @@ class Settings(BaseSettings):
         "relative-depth only and cannot carry the size role of E_depth.",
     )
 
+    # --- scope ---
+    enable_articulation: bool = Field(
+        default=False,
+        description="Off: every object goes to the rigid branch, nothing is routed "
+        "to 4b, and no part masks are requested. The schema still carries joints "
+        "and the kinematic axis still works — a rigid scene is simply one where "
+        "every object is jointless, which the certificate already reports "
+        "separately rather than crediting as a pass. Flip to re-enable stage 4b.",
+    )
+
     # --- stage 2: local depth ---
     depth_model: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Base-hf"
     depth_device: str | None = Field(

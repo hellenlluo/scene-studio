@@ -45,13 +45,29 @@ def _image_fingerprint(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-def cache_key(ctx: PipelineContext, stage: StageName, data: BaseModel | None) -> str:
-    """Hash of (image, stage, upstream result) — changes whenever any input does."""
+def _dump(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, list | tuple):
+        return [_dump(v) for v in value]
+    return value
+
+
+def cache_key(ctx: PipelineContext, stage: StageName, *inputs: object) -> str:
+    """Hash of (image, stage, every input) — changes whenever any of them does.
+
+    Variadic and not just "the upstream result" because several stages depend on
+    more than their predecessor: solve reads the weights and the anchors, certify
+    reads the thresholds. Keying only on the upstream model means a stage silently
+    returns a stale artifact when one of those changes — which would break the
+    scale-anchor interaction in the least visible way possible, by looking like
+    it worked.
+    """
     payload = json.dumps(
         {
             "image": _image_fingerprint(ctx.image_path),
             "stage": str(stage),
-            "input": data.model_dump(mode="json") if data is not None else None,
+            "inputs": [_dump(i) for i in inputs],
         },
         sort_keys=True,
     )

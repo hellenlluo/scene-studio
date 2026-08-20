@@ -5,16 +5,16 @@ __all__ = ["SceneGraph", "recompute", "run"]
 
 
 def run(ctx: PipelineContext, graph: SceneGraph) -> SceneGraph:
-    """Assign collision proxies and the inertial and dynamic priors.
+    """Assign collision proxies and the inertial priors.
 
     Convex decomposition via CoACD over each visual mesh, preceded by
     watertightness repair — trimesh will hand you a non-watertight mesh and a
     meaningless volume without complaining, and mass computed from that volume is
-    meaningless too. Record InertialProperties.watertight either way.
+    meaningless too. Record InertialProperties.watertight either way, because the
+    inertial certification axis treats an untrustworthy mass as a failure rather
+    than a caveat.
 
-    Density comes from the semantic category rather than a global constant, and
-    joint damping and friction likewise. MuJoCo's behaviour under actuation
-    depends on these more than on mesh fidelity.
+    Density comes from the semantic category rather than a global constant.
 
     This runs before solve, not after certify: the solver's physics block steps
     MuJoCo, and MuJoCo cannot settle a body with no mass.

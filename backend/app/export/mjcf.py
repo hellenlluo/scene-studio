@@ -7,25 +7,21 @@ exported scene that behaves differently from the certified one would void the
 whole simulation-ready claim, and the same MJCF on both sides is what makes the
 browser authoritative rather than approximate.
 
-Naming is part of the contract. `body_name` and `joint_name` are the only place
-that decides what things are called, so `app.certify` maps MuJoCo indices back to
-schema objects by calling them rather than by parsing strings apart.
+Naming is part of the contract. `body_name` is the only place that decides what
+things are called, so `app.certify` maps MuJoCo indices back to schema objects by
+calling it rather than by parsing strings apart.
 """
 
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from app.schemas import Joint, JointType, PartGeometry, SceneGraph, SceneObject, Vec3
+from app.schemas import PartGeometry, SceneGraph, SceneObject, Vec3
 
-__all__ = ["body_name", "build_xml", "free_joint_name", "joint_name", "write_mjcf"]
+__all__ = ["body_name", "build_xml", "free_joint_name", "write_mjcf"]
 
 
 def body_name(object_id: str, part_id: str) -> str:
     return f"{object_id}/{part_id}"
-
-
-def joint_name(object_id: str, joint_id: str) -> str:
-    return f"{object_id}/{joint_id}"
 
 
 def free_joint_name(object_id: str) -> str:
@@ -52,9 +48,6 @@ def _sub(a: Vec3, b: Vec3) -> tuple[float, float, float]:
 
 def _add(a: Vec3, b: Vec3) -> tuple[float, float, float]:
     return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
-_JOINT_KIND = {JointType.REVOLUTE: "hinge", JointType.PRISMATIC: "slide"}
 
 
 def _add_geoms(
@@ -109,8 +102,8 @@ def _add_inertial(parent: ET.Element, part: PartGeometry, offset: Vec3 = (0.0, 0
     """Emit explicit mass properties, or let MuJoCo infer them from geometry.
 
     Inferred values come from a uniform default density and are almost always
-    wrong for real objects, but a body with no mass and a joint is a hard model
-    error — so inference is the right behaviour before stage 9 has run.
+    wrong for real objects, but a body with no mass at all is a hard model error —
+    so inference is the right behaviour before the inertia stage has run.
     """
     if part.inertial is None:
         return
@@ -131,7 +124,6 @@ def _add_part(
     obj: SceneObject,
     part: PartGeometry,
     children: dict[str | None, list[PartGeometry]],
-    joints: dict[str, Joint],
     assets: dict[str, str],
     origin: Vec3,
 ) -> None:
@@ -145,31 +137,11 @@ def _add_part(
         },
     )
 
-    joint = joints.get(part.part_id)
-    if joint is not None and joint.type is not JointType.FIXED:
-        attrs = {
-            "name": joint_name(obj.object_id, joint.joint_id),
-            "type": _JOINT_KIND[joint.type],
-            "axis": _fmt(joint.axis),
-            # Joint origins are given in the object frame; MuJoCo wants them in
-            # the child body frame, which is the part's own origin.
-            "pos": _fmt(_scaled(_sub(joint.origin_m, part.origin_m), obj.scale)),
-            "range": f"{joint.limits.lower:.6g} {joint.limits.upper:.6g}",
-            "limited": "true",
-        }
-        if joint.dynamics.damping:
-            attrs["damping"] = f"{joint.dynamics.damping:.6g}"
-        if joint.dynamics.friction_loss:
-            attrs["frictionloss"] = f"{joint.dynamics.friction_loss:.6g}"
-        if joint.dynamics.armature:
-            attrs["armature"] = f"{joint.dynamics.armature:.6g}"
-        ET.SubElement(body, "joint", attrs)
-
     _add_inertial(body, part)
     _add_geoms(body, obj, part, assets)
 
     for child in children.get(part.part_id, []):
-        _add_part(body, obj, child, children, joints, assets, part.origin_m)
+        _add_part(body, obj, child, children, assets, part.origin_m)
 
 
 def _add_object(worldbody: ET.Element, obj: SceneObject, assets: dict[str, str]) -> None:
@@ -183,41 +155,31 @@ def _add_object(worldbody: ET.Element, obj: SceneObject, assets: dict[str, str])
             "quat": _fmt(obj.orientation),
         },
     )
-    # Every object is free. The stability axis needs that to settle under gravity;
-    # the kinematic axis never steps, so the free joint simply holds the object
-    # wherever the graph placed it. One MJCF serves both.
+    # Every object floats freely so the stability axis can settle it under
+    # gravity. Parts within an object are rigidly attached to each other.
     ET.SubElement(body, "freejoint", {"name": free_joint_name(obj.object_id)})
 
     children: dict[str | None, list[PartGeometry]] = {}
     for part in obj.parts:
         children.setdefault(part.parent_part_id, []).append(part)
 
-    # A joint is indexed by the part it drives, since that is the body the joint
-    # element has to live on.
-    joints = {j.child_part_id: j for j in obj.joints}
-
     root_offset = _scaled(root.origin_m, obj.scale)
     _add_inertial(body, root, root_offset)
     _add_geoms(body, obj, root, assets, root_offset)
     for child in children.get(root.part_id, []):
-        _add_part(body, obj, child, children, joints, assets, root.origin_m)
+        _add_part(body, obj, child, children, assets, root.origin_m)
 
 
 def build_xml(graph: SceneGraph) -> str:
     """The whole scene as an MJCF string. Pure — no filesystem, so tests are cheap."""
     root = ET.Element("mujoco", {"model": "scenestudio"})
 
-    # Radians, because JointLimits are radians for revolute joints. MJCF's default
-    # is degrees, and the mismatch is silent: a 1.57 rad door would be read as
-    # 1.57 degrees and every sweep would pass without opening anything.
     ET.SubElement(root, "compiler", {"angle": "radian"})
 
     option = ET.SubElement(root, "option", {"timestep": "0.002"})
-    # MuJoCo filters contacts between a parent body and its child by default, so
-    # a drawer driven clean through the back of its cabinet reports ZERO contacts.
-    # Measured: filterparent=enable gives ncon=0 on a 20 cm interpenetration;
-    # disable gives 4 contacts at dist=-0.35. Without this line the kinematic axis
-    # silently passes every articulated object it is given.
+    # MuJoCo excludes contacts between a parent body and its child by default,
+    # which would hide overlap between the rigidly-attached parts of one object.
+    # Measured: with the default, a 20 cm interpenetration reports ncon=0.
     ET.SubElement(option, "flag", {"filterparent": "disable"})
 
     assets: dict[str, str] = {}

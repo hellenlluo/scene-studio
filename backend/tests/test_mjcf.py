@@ -1,8 +1,8 @@
 """MJCF emission.
 
-The two tests that matter most here are `test_parent_child_contacts_are_enabled`
-and `test_box_size_is_a_half_extent`. Both guard defaults that are wrong for this
-project and wrong *silently* — nothing raises, the scene just quietly stops
+The two that matter most are `test_parent_child_contacts_are_enabled` and
+`test_box_size_is_a_half_extent`. Both guard MuJoCo defaults that are wrong for
+this project and wrong *silently* — nothing raises, the scene just quietly stops
 meaning what it says.
 """
 
@@ -10,10 +10,17 @@ import mujoco
 import pytest
 
 from app.export import mjcf
-from app.schemas import JointType
+from app.schemas import (
+    AssetFrame,
+    DimensionPrior,
+    ObjectLabel,
+    PartGeometry,
+    SceneGraph,
+    SceneObject,
+)
 from tests.fixtures import scenes
 
-ALL_SCENES = ["kitchen", "cabinet_with_overlong_drawer", "cabinet_door_into_table"]
+ALL_SCENES = ["kitchen", "mug_floating_above_table", "mug_sunk_into_table"]
 
 
 @pytest.fixture(params=ALL_SCENES)
@@ -28,22 +35,10 @@ def test_every_fixture_compiles(graph):
 
 
 def test_parent_child_contacts_are_enabled(graph):
-    """MuJoCo filters parent-child contacts by default, and with that default a
-    drawer driven clean through the back of its cabinet reports zero contacts —
-    so the kinematic axis would pass every articulated object it is ever given."""
+    """MuJoCo excludes contacts between a parent body and its child by default,
+    which would hide overlap between the rigidly-attached pieces of one object."""
     model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
     assert model.opt.disableflags & mujoco.mjtDisableBit.mjDSBL_FILTERPARENT
-
-
-def test_angles_are_radians():
-    """MJCF defaults to degrees. JointLimits are radians, so a 1.57 rad door would
-    compile as 1.57 degrees and every sweep would pass without opening anything."""
-    graph = scenes.cabinet_door_into_table()
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
-    joint = graph.objects[0].joints[0]
-    lower, upper = model.jnt_range[model.joint("cabinet/door_hinge").id]
-    assert upper == pytest.approx(joint.limits.upper, abs=1e-6)
-    assert lower == pytest.approx(joint.limits.lower, abs=1e-6)
 
 
 def test_box_size_is_a_half_extent():
@@ -65,11 +60,41 @@ def test_object_scale_multiplies_part_extents():
 
 def test_root_part_origin_is_not_dropped():
     """The root body carries the object frame, so the root *part's* own offset has
-    to land on its geometry — otherwise the whole object translates by it."""
-    graph = scenes.kitchen()
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
-    root = graph.get("cabinet").root_part
-    assert tuple(model.geom("cabinet/bottom/obb").pos) == pytest.approx(root.origin_m)
+    to land on its geometry — otherwise the whole object translates by it.
+
+    Built inline rather than from a fixture: every fixture object happens to have
+    a root at the origin, so this would pass vacuously against any of them.
+    """
+    root = PartGeometry(
+        part_id="base", name="base", dims_m=(0.4, 0.4, 0.1), origin_m=(0.0, 0.0, -0.45)
+    )
+    child = PartGeometry(
+        part_id="shade",
+        name="shade",
+        parent_part_id="base",
+        dims_m=(0.3,) * 3,
+        origin_m=(0, 0, 0.2),
+    )
+    obj = SceneObject(
+        object_id="lamp",
+        label=ObjectLabel(
+            object_id="lamp",
+            category="lamp",
+            prior=DimensionPrior(dims_m=(0.4, 0.4, 1.0), sigma_m=(0.1,) * 3),
+        ),
+        frame=AssetFrame(source="test"),
+        parts=[child, root],
+        position_m=(1.0, 2.0, 0.5),
+        scale=2.0,
+    )
+    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(SceneGraph(objects=[obj])))
+
+    # The root body sits at the object position; its geometry carries the offset,
+    # scaled.
+    assert tuple(model.body("lamp/base").pos) == pytest.approx((1.0, 2.0, 0.5))
+    assert tuple(model.geom("lamp/base/obb").pos) == pytest.approx((0.0, 0.0, -0.9))
+    # Children are placed relative to the root part's origin, also scaled.
+    assert tuple(model.body("lamp/shade").pos) == pytest.approx((0.0, 0.0, 1.3))
 
 
 def test_names_come_from_the_helpers_not_string_surgery():
@@ -80,25 +105,7 @@ def test_names_come_from_the_helpers_not_string_surgery():
     for obj in graph.objects:
         for part in obj.parts:
             assert model.body(mjcf.body_name(obj.object_id, part.part_id)) is not None
-        for joint in obj.joints:
-            assert model.joint(mjcf.joint_name(obj.object_id, joint.joint_id)) is not None
         assert model.joint(mjcf.free_joint_name(obj.object_id)) is not None
-
-
-def test_joint_types_map_to_mujoco_kinds():
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(scenes.kitchen()))
-    assert model.joint("cabinet/drawer_top_slide").type == mujoco.mjtJoint.mjJNT_SLIDE
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(scenes.cabinet_door_into_table()))
-    assert model.joint("cabinet/door_hinge").type == mujoco.mjtJoint.mjJNT_HINGE
-
-
-def test_fixed_joints_emit_no_mujoco_joint():
-    graph = scenes.kitchen()
-    cabinet = graph.get("cabinet")
-    cabinet.joints[0].type = JointType.FIXED
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
-    with pytest.raises(KeyError):
-        model.joint("cabinet/drawer_top_slide")
 
 
 def test_write_mjcf_matches_build_xml(tmp_path):

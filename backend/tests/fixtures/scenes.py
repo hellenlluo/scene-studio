@@ -5,45 +5,23 @@ export — is testable before any perception stage runs. No GPU, no API key, no
 mesh files: every part falls back to its OBB box, which is the tier the pipeline
 guarantees anyway.
 
-Two of the three scenes are deliberately broken. A validator tested only on
-scenes that pass is a validator you have no evidence detects anything, and the
-kinematic axis in particular fails silently and completely when it is
-misconfigured — so the broken fixtures are the ones carrying their weight.
-
-**Cabinets are modelled as five welded panels, not one solid box.** A solid box
-carcass would contain its own drawer at every joint value, so the sweep would
-report a permanent penetration and the scene could never certify. That is not an
-artefact of the fixture: `ProxyTier.OBB` genuinely cannot represent a hollow
-container, so any real cabinet that never gets past OBB will fail its kinematic
-axis for reasons that have nothing to do with its joints. Panels are how a convex
-decomposition would represent it, and welded child parts are already in the
-schema for exactly this shape of problem.
+Two of the three are deliberately broken, and they model what a bad
+reconstruction actually produces rather than an abstract failure. A validator
+tested only on scenes that pass is one you have no evidence detects anything.
 """
 
 from app.schemas import (
     AssetFrame,
     DimensionPrior,
     InertialProperties,
-    Joint,
-    JointDynamics,
-    JointLimits,
-    JointType,
     ObjectLabel,
     PartGeometry,
-    Route,
     SceneGraph,
     SceneObject,
     Vec3,
 )
 
-__all__ = [
-    "cabinet_door_into_table",
-    "cabinet_with_overlong_drawer",
-    "kitchen",
-    "rigid_kitchen",
-]
-
-PANEL = 0.02  # carcass panel thickness
+__all__ = ["kitchen", "mug_floating_above_table", "mug_sunk_into_table"]
 
 
 def _box_inertial(dims: Vec3, density: float) -> InertialProperties:
@@ -67,7 +45,6 @@ def _part(
     origin: Vec3 = (0.0, 0.0, 0.0),
     parent: str | None = None,
     density: float = 600.0,
-    welded: bool = False,
 ) -> PartGeometry:
     return PartGeometry(
         part_id=part_id,
@@ -76,7 +53,6 @@ def _part(
         dims_m=dims,
         origin_m=origin,
         inertial=_box_inertial(dims, density),
-        welded=welded,
     )
 
 
@@ -86,42 +62,38 @@ def _object(
     parts: list[PartGeometry],
     position: Vec3,
     prior_dims: Vec3,
-    joints: list[Joint] | None = None,
     supported_by: str | None = None,
 ) -> SceneObject:
-    joints = joints or []
     return SceneObject(
         object_id=object_id,
         label=ObjectLabel(
             object_id=object_id,
             category=category,
-            route=Route.ARTICULATED if joints else Route.RIGID,
             prior=DimensionPrior(dims_m=prior_dims, sigma_m=(0.05, 0.05, 0.05)),
             support_parent=supported_by,
         ),
         frame=AssetFrame(source="authored"),
         parts=parts,
-        joints=joints,
         position_m=position,
         supported_by=supported_by,
-        route_taken=Route.ARTICULATED if joints else Route.RIGID,
     )
 
 
-def _table() -> SceneObject:
-    """1.2 x 0.75 x 0.75 slab. Its top surface sits at z = 0.75."""
-    return _object(
+def kitchen() -> SceneGraph:
+    """A scene that should certify on every axis that has a validator.
+
+    A table, a mug resting on it, and a cabinet on the floor. Every object is a
+    single solid part, which is what reconstruction produces.
+    """
+    table = _object(
         "table",
         "table",
         [_part("top", (1.2, 0.75, 0.75), density=700.0)],
         position=(0.0, 0.0, 0.375),
         prior_dims=(1.2, 0.75, 0.75),
     )
-
-
-def _mug() -> SceneObject:
-    """Resting on the table: base at z = 0.75, so centre at 0.75 + 0.10/2."""
-    return _object(
+    # Base at z = 0.75, the tabletop, so centre sits at 0.75 + 0.10/2.
+    mug = _object(
         "mug",
         "mug",
         [_part("body", (0.09, 0.09, 0.10), density=400.0)],
@@ -129,78 +101,6 @@ def _mug() -> SceneObject:
         prior_dims=(0.09, 0.09, 0.10),
         supported_by="table",
     )
-
-
-def _carcass(depth: float = 0.6) -> list[PartGeometry]:
-    """Five welded panels enclosing a 0.6 x `depth` x 0.9 volume, open toward +y.
-
-    The bottom panel is the root; the rest hang off it as welded children, which
-    is both how a decomposition would express it and how the schema represents a
-    part that has collapsed into its parent.
-    """
-    w, h = 0.6, 0.9
-    half_d, half_h = depth / 2.0, h / 2.0
-    return [
-        _part("bottom", (w, depth, PANEL), (0.0, 0.0, -half_h)),
-        _part("top", (w, depth, PANEL), (0.0, 0.0, half_h), parent="bottom", welded=True),
-        _part("back", (w, PANEL, h), (0.0, -half_d, 0.0), parent="bottom", welded=True),
-        _part("left", (PANEL, depth, h), (-w / 2, 0.0, 0.0), parent="bottom", welded=True),
-        _part("right", (PANEL, depth, h), (w / 2, 0.0, 0.0), parent="bottom", welded=True),
-    ]
-
-
-def _drawer_joint(joint_id: str, child: str, travel: float) -> Joint:
-    """Prismatic, sliding out along +y (the open face)."""
-    return Joint(
-        joint_id=joint_id,
-        name=joint_id,
-        type=JointType.PRISMATIC,
-        parent_part_id="bottom",
-        child_part_id=child,
-        axis=(0.0, 1.0, 0.0),
-        origin_m=(0.0, 0.0, 0.0),
-        limits=JointLimits(lower=0.0, upper=travel),
-        dynamics=JointDynamics(damping=5.0, friction_loss=2.0),
-    )
-
-
-def kitchen() -> SceneGraph:
-    """A scene that should certify on every axis.
-
-    Table, a mug resting on it, and a two-drawer cabinet whose drawers fit inside
-    their carcass and slide their full travel without touching anything.
-    """
-    drawer_dims = (0.5, 0.5, 0.3)
-    cabinet = _object(
-        "cabinet",
-        "cabinet",
-        [
-            *_carcass(),
-            _part("drawer_top", drawer_dims, (0.0, 0.0, 0.2), parent="bottom"),
-            _part("drawer_bottom", drawer_dims, (0.0, 0.0, -0.15), parent="bottom"),
-        ],
-        position=(1.2, 0.0, 0.46),
-        prior_dims=(0.6, 0.6, 0.9),
-        joints=[
-            _drawer_joint("drawer_top_slide", "drawer_top", 0.4),
-            _drawer_joint("drawer_bottom_slide", "drawer_bottom", 0.4),
-        ],
-    )
-    return SceneGraph(objects=[_table(), _mug(), cabinet])
-
-
-def rigid_kitchen() -> SceneGraph:
-    """The same room with articulation switched off — what the pipeline builds today.
-
-    Every object is a single solid part with no joints, which is what the rigid
-    branch produces. Use this for the stability, inertial, scale and cost axes;
-    the articulated fixtures exist for the kinematic axis, which is dormant while
-    `enable_articulation` is False.
-
-    Note the cabinet is one solid box here and that is *fine*. A solid carcass is
-    only a problem when something has to move inside it, so the hollow-container
-    question does not arise in a rigid scene at all.
-    """
     cabinet = _object(
         "cabinet",
         "cabinet",
@@ -208,65 +108,33 @@ def rigid_kitchen() -> SceneGraph:
         position=(1.2, 0.0, 0.46),
         prior_dims=(0.6, 0.6, 0.9),
     )
-    return SceneGraph(objects=[_table(), _mug(), cabinet])
+    return SceneGraph(objects=[table, mug, cabinet])
 
 
-def cabinet_with_overlong_drawer() -> SceneGraph:
-    """A 0.9 m drawer in a 0.6 m carcass — the ideation doc's own example.
+def mug_floating_above_table() -> SceneGraph:
+    """A mug hovering 25 cm over the table — what an over-estimated depth looks
+    like once it reaches physics.
 
-    Fails at *every* joint value including fully closed, because the drawer is
-    longer than the box it lives in. There is no clean sub-range, so a correct
-    validator reports `feasible_limits=None` rather than inventing one.
+    It falls, so COM displacement fails while initial penetration stays clean. The
+    two signals are independent and this pins that.
     """
-    cabinet = _object(
-        "cabinet",
-        "cabinet",
-        [
-            *_carcass(depth=0.6),
-            _part("drawer_top", (0.5, 0.9, 0.3), (0.0, 0.0, 0.2), parent="bottom"),
-        ],
-        position=(0.0, 0.0, 0.46),
-        prior_dims=(0.6, 0.6, 0.9),
-        joints=[_drawer_joint("drawer_top_slide", "drawer_top", 0.4)],
-    )
-    return SceneGraph(objects=[cabinet])
+    graph = kitchen()
+    mug = graph.get("mug")
+    x, y, z = mug.position_m
+    mug.position_m = (x, y, z + 0.25)
+    return graph
 
 
-def cabinet_door_into_table() -> SceneGraph:
-    """A door that swings freely for part of its range and then hits a table.
+def mug_sunk_into_table() -> SceneGraph:
+    """A mug buried 5 cm inside the tabletop — under-estimated depth, or two
+    objects whose scales disagree.
 
-    The interesting case, and the one AxisErr cannot see: the joint parameters are
-    perfectly good, the door simply has nowhere to go past a certain angle. A
-    correct validator reports a `blocked_at_q` partway through and
-    `feasible_limits` covering the sub-range that does work — which is the range
-    the object genuinely has and that a careless repair would throw away.
+    The interpenetration case, and the reason overlap is measured at t=0: the
+    solver ejects the mug within a few steps, so by the end of settling the
+    evidence that diagnosed the error no longer exists.
     """
-    door = _part("door", (0.6, 0.02, 0.9), (0.0, 0.31, 0.0), parent="bottom", density=500.0)
-    hinge = Joint(
-        joint_id="door_hinge",
-        name="door_left",
-        type=JointType.REVOLUTE,
-        parent_part_id="bottom",
-        child_part_id="door",
-        axis=(0.0, 0.0, 1.0),
-        origin_m=(-0.3, 0.31, 0.0),  # hinged on the left edge of the open face
-        limits=JointLimits(lower=0.0, upper=1.5708),  # 0-90 degrees, radians
-        dynamics=JointDynamics(damping=2.0),
-    )
-    cabinet = _object(
-        "cabinet",
-        "cabinet",
-        [*_carcass(), door],
-        position=(0.0, 0.0, 0.46),
-        prior_dims=(0.6, 0.6, 0.9),
-        joints=[hinge],
-    )
-    # Parked just off the cabinet's open face, in the door's swing path.
-    blocker = _object(
-        "table",
-        "table",
-        [_part("top", (1.2, 0.75, 0.75), density=700.0)],
-        position=(-0.75, 0.8, 0.375),
-        prior_dims=(1.2, 0.75, 0.75),
-    )
-    return SceneGraph(objects=[cabinet, blocker])
+    graph = kitchen()
+    mug = graph.get("mug")
+    x, y, z = mug.position_m
+    mug.position_m = (x, y, z - 0.05)
+    return graph

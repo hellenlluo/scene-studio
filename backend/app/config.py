@@ -53,16 +53,6 @@ class Settings(BaseSettings):
         "relative-depth only and cannot carry the size role of E_depth.",
     )
 
-    # --- scope ---
-    enable_articulation: bool = Field(
-        default=False,
-        description="Off: every object goes to the rigid branch, nothing is routed "
-        "to 4b, and no part masks are requested. The schema still carries joints "
-        "and the kinematic axis still works — a rigid scene is simply one where "
-        "every object is jointless, which the certificate already reports "
-        "separately rather than crediting as a pass. Flip to re-enable stage 4b.",
-    )
-
     # --- stage 2: local depth ---
     depth_model: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Base-hf"
     depth_device: str | None = Field(
@@ -99,18 +89,19 @@ class Settings(BaseSettings):
     max_com_displacement_m: float = 0.01
     max_orientation_drift_deg: float = 2.0
 
-    # Shared by the stability and kinematic axes. Non-zero because mesh
+    # Non-zero because mesh
     # discretisation produces sub-millimetre contacts on surfaces flush by
     # design, and a zero-tolerance check would fail every well-modelled drawer.
     # Sensitivity of the reported results to this value is itself a result.
     max_penetration_m: float = 0.002
 
-    # Kinematic axis.
-    sweep_steps: int = 50
-
     # Scale axis.
     max_support_gap_m: float = 0.005
     max_prior_deviation_sigma: float = 3.0
+
+    # Inertial axis. Relative, because the absolute error scales with the object:
+    # 1 g on a mug means something quite different to 1 g on a wardrobe.
+    max_inertia_rel_error: float = 0.01
 
     # Cost axis.
     step_time_budget_ms: float = 2.0
@@ -141,9 +132,9 @@ class Settings(BaseSettings):
             "max_com_displacement_m": self.max_com_displacement_m,
             "max_orientation_drift_deg": self.max_orientation_drift_deg,
             "max_penetration_m": self.max_penetration_m,
-            "sweep_steps": self.sweep_steps,
             "max_support_gap_m": self.max_support_gap_m,
             "max_prior_deviation_sigma": self.max_prior_deviation_sigma,
+            "max_inertia_rel_error": self.max_inertia_rel_error,
             "step_time_budget_ms": self.step_time_budget_ms,
         }
 

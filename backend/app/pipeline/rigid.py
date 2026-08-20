@@ -5,18 +5,27 @@ __all__ = ["ReconstructionResult", "run"]
 
 
 def run(ctx: PipelineContext, segments: SegmentResult, labels: LabelResult) -> ReconstructionResult:
-    """Branch 4a: single-part mesh reconstruction, OBB proxy as the floor.
+    """Stage 4: per-object mesh reconstruction, via SAM 3D Objects on fal.
 
-    Build the OBB path first and completely. It needs only the backprojected
-    point cloud and the mask extent, it runs without a GPU, and it makes every
-    downstream stage — reconcile, solve, certify, repair, export — exercisable
-    end to end before any hosted model is wired up.
+    Takes stage 1's masks directly as `mask_urls`, and stage 2's metric point map
+    as `pointmap_url` — feeding the same depth the solver scores against means the
+    mesh comes back consistent with it rather than disagreeing.
 
-    Mesh reconstruction (TRELLIS / Hunyuan3D-2 / InstantMesh over the inpainted
-    crop) then upgrades proxy_tier per object, and must stay optional: when it
-    fails the object keeps its OBB and the scene stays valid.
+    Two things to handle:
 
-    Emits one part per object, so the result is the degenerate case of the
-    articulated branch rather than a different shape.
+    * **The returned scale is anisotropic and not metric.** Metadata carries a
+      rotation, a translation and per-axis scale factors, camera-relative.
+      SceneObject.scale is one float by design, so bake the anisotropy into the
+      geometry and keep only the isotropic residual in
+      AssetFrame.normalization_scale. Never use the number as-is however
+      convenient: scale that is inherited from a generative model and never
+      reconciled is the exact failure this project exists to fix.
+    * **Fire the per-object calls concurrently** through the queue API. Serial, a
+      large scene takes minutes; concurrent it takes seconds, and end-to-end
+      latency is a reported result.
+
+    An OBB proxy from the backprojected cloud is the fallback when reconstruction
+    fails, and it is worth building first: it needs no GPU and it makes every
+    downstream stage exercisable end to end.
     """
-    raise NotImplementedError("rigid branch")
+    raise NotImplementedError("reconstruct")

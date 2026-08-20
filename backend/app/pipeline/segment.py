@@ -1,25 +1,18 @@
 from app.pipeline.base import PipelineContext
-from app.schemas import LabelResult, SegmentResult
+from app.schemas import SegmentResult
 
-__all__ = ["SegmentResult", "run", "run_parts"]
+__all__ = ["SegmentResult", "run"]
 
 
 def run(ctx: PipelineContext) -> SegmentResult:
-    """Instance masks over the input photo.
+    """Instance masks over the input photo, via SAM 3 on fal.
 
-    TODO: SAM 2 for class-agnostic masks, or Grounded-SAM if text-prompted
-    proposals turn out to segment furniture more reliably. Write each mask to
-    ctx.workdir() as a single-channel PNG and reference it by path — masks are
-    too large to carry through the stage contracts inline.
+    Concept-prompted rather than class-agnostic: the endpoint's default prompt is
+    literally "car", so it needs a noun list. That argues for a cheap VLM
+    inventory pass before this stage, with the full labelling pass after.
+
+    Write each mask to ctx.workdir() as a single-channel PNG and reference it by
+    path — masks are too large to carry inline through the stage contracts. fal
+    needs publicly fetchable URLs, so the photo and every mask get uploaded.
     """
     raise NotImplementedError("segment")
-
-
-def run_parts(ctx: PipelineContext, segments: SegmentResult, labels: LabelResult) -> SegmentResult:
-    """Second pass: part masks inside every object stage 3 routed to articulated.
-
-    Runs after labelling rather than with it, because which objects need part
-    decomposition is exactly stage 3's routing decision. Returns the same
-    SegmentResult with ObjectMask.parts populated.
-    """
-    raise NotImplementedError("segment parts")

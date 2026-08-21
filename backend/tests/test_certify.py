@@ -23,30 +23,51 @@ def ctx(tmp_path):
 # --- the four statuses --------------------------------------------------------
 
 
-def test_a_sound_rigid_scene_passes_every_axis_that_ran(ctx):
+def test_a_sound_scene_passes_every_axis(ctx):
     cert = certify.run(ctx, scenes.kitchen())
+    assert cert.scale_status is AxisStatus.PASS
     assert cert.stability_status is AxisStatus.PASS
     assert cert.inertial_status is AxisStatus.PASS
     assert cert.cost_status is AxisStatus.PASS
     assert not cert.failing_object_ids()
 
 
-def test_scale_is_not_run_so_nothing_certifies_yet(ctx):
-    """app.certify.scale is still a stub. Reporting that axis as NOT_APPLICABLE
-    would let a scene certify with its scale unexamined, which is the whole thing
-    the per-axis contract exists to prevent."""
+def test_a_sound_scene_certifies(ctx):
+    """All four axes have validators now, so this is the first configuration that
+    can honestly report as certified."""
     cert = certify.run(ctx, scenes.kitchen())
-    assert cert.scale_status is AxisStatus.NOT_RUN
-    assert cert.unchecked_axes == ["scale"]
+    assert cert.unchecked_axes == []
+    assert cert.passed
+    assert not cert.failing_object_ids()
+
+
+def test_every_axis_is_reached(ctx):
+    """A NOT_RUN from here on means a validator raised or was skipped, not that
+    the check does not exist."""
+    cert = certify.run(ctx, scenes.kitchen())
+    assert all(s is not AxisStatus.NOT_RUN for s in cert.axes.values())
+
+
+def test_a_broken_scene_fails_only_the_axes_it_broke(ctx):
+    cert = certify.run(ctx, scenes.mug_sunk_into_table())
+    assert cert.scale_status is AxisStatus.FAIL
+    assert cert.stability_status is AxisStatus.FAIL
+    # One failure does not poison the report.
+    assert cert.inertial_status is AxisStatus.PASS
+    assert cert.cost_status is AxisStatus.PASS
     assert not cert.passed
 
 
-def test_a_broken_scene_fails_the_axis_it_broke(ctx):
+def test_the_two_physical_axes_disagree_about_blame(ctx):
+    """Worth knowing before it looks like a bug. Stability measures overlap
+    symmetrically, so a mug buried in a table fails both bodies; the scale axis
+    checks each object against its own support, so it names only the mug. The
+    union is what `failing_object_ids` reports."""
     cert = certify.run(ctx, scenes.mug_sunk_into_table())
-    assert cert.stability_status is AxisStatus.FAIL
-    # The other axes are unaffected — one failure does not poison the report.
-    assert cert.inertial_status is AxisStatus.PASS
-    assert cert.cost_status is AxisStatus.PASS
+    scale_failures = {c.object_id for c in cert.scale if not c.passed}
+    stability_failures = {c.object_id for c in cert.stability if not c.passed}
+    assert scale_failures == {"mug"}
+    assert stability_failures == {"mug", "table"}
     assert cert.failing_object_ids() == {"mug", "table"}
 
 
@@ -63,6 +84,7 @@ def test_the_tolerance_is_recorded_on_the_certificate(ctx):
 def test_every_axis_carries_its_measurements(ctx):
     """A bare pass/fail would throw away exactly what a user needs to fix it."""
     cert = certify.run(ctx, scenes.kitchen())
+    assert len(cert.scale) == 3
     assert len(cert.stability) == 3
     assert len(cert.inertial) == 3
     assert cert.cost is not None and cert.cost.mean_step_time_ms > 0

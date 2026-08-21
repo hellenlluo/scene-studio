@@ -21,7 +21,12 @@ from app.schemas import (
     Vec3,
 )
 
-__all__ = ["kitchen", "mug_floating_above_table", "mug_sunk_into_table"]
+__all__ = [
+    "cabinet_overlapping_table",
+    "kitchen",
+    "mug_floating_above_table",
+    "mug_sunk_into_table",
+]
 
 
 def _box_inertial(dims: Vec3, density: float) -> InertialProperties:
@@ -137,4 +142,19 @@ def mug_sunk_into_table() -> SceneGraph:
     mug = graph.get("mug")
     x, y, z = mug.position_m
     mug.position_m = (x, y, z - 0.05)
+    return graph
+
+
+def cabinet_overlapping_table() -> SceneGraph:
+    """Two floor-standing objects occupying the same space — what disagreeing
+    per-object scales look like once both are placed.
+
+    Neither supports the other, so snapping to a support plane cannot help. The
+    fix has to be a lateral push, and choosing *which* body to move is the part
+    that makes repair underdetermined.
+    """
+    graph = kitchen()
+    cabinet = graph.get("cabinet")
+    _, y, z = cabinet.position_m
+    cabinet.position_m = (0.7, y, z)  # 0.2 m into the table
     return graph

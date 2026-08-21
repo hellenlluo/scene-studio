@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     # Cost axis.
     step_time_budget_ms: float = 2.0
 
+    # Repair. A *cost* budget, not a safety net: every accepted repair strictly
+    # decreases a violation score bounded below by zero, so the loop terminates on
+    # its own and cannot oscillate. This only binds when repairs cascade — fixing
+    # one object creating a failure in another — and each round costs one
+    # re-certification per proposal, roughly 20 ms on a small scene.
+    max_repair_rounds: int = 10
+
     @property
     def uploads_dir(self) -> Path:
         return self.storage_dir / "uploads"

@@ -374,6 +374,29 @@ class SceneGraph(BaseModel):
         return next((o for o in self.objects if o.object_id == object_id), None)
 
 
+class SupportSurface(BaseModel):
+    """An upward-facing face something could rest on.
+
+    Geometric only: this says a placement is *possible*, never that it is
+    sensible. An apple fits perfectly well on a toilet cistern. Deciding which
+    possible placements make sense is the VLM's job, and the point of computing
+    these is to hand it a short list that is at least physically achievable.
+    """
+
+    object_id: str
+    part_id: str
+    height_m: float = Field(
+        description="World z of the face centroid. A face tilted within tolerance "
+        "has no single height, and the solver refines the contact anyway."
+    )
+    polygon_xy: list[tuple[float, float]] = Field(description="World XY, in ring order.")
+    normal: Vec3
+    area_m2: float
+    free_area_m2: float = Field(
+        description="Area minus the footprint of whatever already rests here."
+    )
+
+
 # --- stage 6: solve -----------------------------------------------------------
 
 
@@ -586,6 +609,15 @@ class RepairResult(BaseModel):
     graph: SceneGraph
     certificate: Certificate
     actions: list[RepairAction] = Field(default_factory=list)
+
+    rounds_used: int = 0
+    converged: bool = Field(
+        default=True,
+        description="False means repair stopped because it ran out of rounds, not "
+        "because it was finished. The scene might still certify with a larger "
+        "budget, and a caller that cannot tell the difference would report a "
+        "truncated repair as a genuine failure.",
+    )
 
 
 # --- stage 10: export ---------------------------------------------------------

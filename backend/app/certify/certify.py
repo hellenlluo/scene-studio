@@ -10,9 +10,9 @@ the point of the whole design:
   disqualifying, so a scene cannot certify on the strength of whichever checks
   happen to be implemented.
 
-`scale` is NOT_RUN today: `app.certify.scale` is still a stub, so no scene in this
-repo can report as certified yet. That is the honest state and it is meant to be
-visible rather than papered over.
+All four axes have validators, so a sound scene now certifies. Anything that
+reports NOT_RUN from here means a validator raised or was skipped, not that the
+check does not exist.
 """
 
 from app.pipeline.base import PipelineContext
@@ -39,17 +39,17 @@ def _status(checks: list) -> AxisStatus:
 def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
     settings = ctx.settings
 
+    scale_checks = scale.run(graph, settings.max_prior_deviation_sigma, settings.max_support_gap_m)
     stability_checks = stability.run(graph, settings)
     inertial_checks = inertial.run(graph, settings.max_inertia_rel_error)
     cost_check = cost.run(graph, settings.step_time_budget_ms)
 
     return Certificate(
-        # TODO: app.certify.scale. Left NOT_RUN rather than NOT_APPLICABLE so no
-        # scene claims to be certified while its scale is unexamined.
-        scale_status=AxisStatus.NOT_RUN,
+        scale_status=_status(scale_checks),
         stability_status=_status(stability_checks),
         inertial_status=_status(inertial_checks),
         cost_status=AxisStatus.PASS if cost_check.passed else AxisStatus.FAIL,
+        scale=scale_checks,
         stability=stability_checks,
         inertial=inertial_checks,
         cost=cost_check,

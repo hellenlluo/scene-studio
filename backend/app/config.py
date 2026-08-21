@@ -126,6 +126,25 @@ class Settings(BaseSettings):
     def scenes_dir(self) -> Path:
         return self.storage_dir / "scenes"
 
+    def storage_relative(self, path: Path | str) -> str:
+        """A path under storage_dir, expressed relative to it.
+
+        Everything the browser fetches goes through the `/storage` static mount, so
+        a stored absolute filesystem path is unusable to a client — and it also
+        breaks the moment the storage directory moves, which it does between a
+        developer's machine and a test's temp dir. Storing the relative form and
+        letting the client prepend `/storage/` keeps the record portable and the
+        URL derivable.
+
+        Paths outside storage_dir are returned unchanged rather than raising: an
+        odd path in a record is a smaller problem than a stage that cannot finish.
+        """
+        resolved = Path(path).resolve()
+        try:
+            return resolved.relative_to(self.storage_dir.resolve()).as_posix()
+        except ValueError:
+            return str(path)
+
     def certification_thresholds(self) -> dict[str, float | int]:
         """The subset of settings a certification result depends on.
 

@@ -127,15 +127,17 @@ def run_pipeline(
 
     report(StageName.EXPORT, "running", None)
     out = ctx.workdir()
+    # Relative to storage_dir, because these are what the browser fetches through
+    # the /storage mount and an absolute filesystem path is unusable to a client.
     exports = ExportResult(
-        mjcf_path=str(mjcf.write_mjcf(graph, out)),
-        gltf_path=str(gltf.write_gltf(graph, out)),
+        mjcf_path=ctx.settings.storage_relative(mjcf.write_mjcf(graph, out)),
+        gltf_path=ctx.settings.storage_relative(gltf.write_gltf(graph, out)),
     )
     report(StageName.EXPORT, "done", None)
 
     return SceneSpec(
         scene_id=job_id,
-        image_path=str(image_path),
+        image_path=ctx.settings.storage_relative(image_path),
         intrinsics=dep.intrinsics,
         graph=graph,
         certificate=cert,

@@ -1,122 +1,75 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
-function App() {
-  const [count, setCount] = useState(0)
+import { api } from './api/client'
+import { CertificatePanel } from './certify/CertificatePanel'
+import { Viewer } from './scene/Viewer'
+import { useSceneStore } from './scene/store'
+
+const queryClient = new QueryClient()
+
+function SceneStudio() {
+  const sceneId = useSceneStore((s) => s.sceneId)
+  const setSceneId = useSceneStore((s) => s.setSceneId)
+
+  const scenes = useQuery({ queryKey: ['scenes'], queryFn: api.listScenes })
+  const scene = useQuery({
+    queryKey: ['scene', sceneId],
+    queryFn: () => api.getScene(sceneId as string),
+    enabled: sceneId !== null,
+  })
+
+  // Open the first scene once the list arrives, so there is something on screen
+  // without a click.
+  useEffect(() => {
+    if (sceneId === null && scenes.data?.length) setSceneId(scenes.data[0].id)
+  }, [sceneId, scenes.data, setSceneId])
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app">
+      <header>
+        <h1>SceneStudio</h1>
+        <nav>
+          {scenes.data?.map((summary) => (
+            <button
+              key={summary.id}
+              type="button"
+              className={`tab ${summary.id === sceneId ? 'tab--active' : ''}`}
+              onClick={() => setSceneId(summary.id)}
+            >
+              {summary.name}
+              <span className={`dot dot--${summary.certified ? 'pass' : 'fail'}`} />
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <main>
+        {scenes.isError && (
+          <div className="viewer-empty">
+            cannot reach the backend — is uvicorn running on :8000?
+          </div>
+        )}
+        {scenes.data?.length === 0 && (
+          <div className="viewer-empty">
+            no scenes yet — run <code>uv run python -m app.seed</code>
+          </div>
+        )}
+        {scene.data && (
+          <>
+            <Viewer envelope={scene.data} />
+            <CertificatePanel envelope={scene.data} />
+          </>
+        )}
+      </main>
+    </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SceneStudio />
+    </QueryClientProvider>
+  )
+}

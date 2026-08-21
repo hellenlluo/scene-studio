@@ -624,6 +624,14 @@ class RepairResult(BaseModel):
 
 
 class ExportResult(BaseModel):
+    """Paths relative to the storage directory, not absolute.
+
+    These are what a client fetches through the `/storage` mount, so it builds the
+    URL as `/storage/{path}`. Storing the absolute form would be unusable to a
+    browser and would break the moment the storage directory moves — which it does
+    between a developer's machine and a test's temp dir.
+    """
+
     mjcf_path: str | None = None
     gltf_path: str | None = None
 
@@ -676,7 +684,10 @@ class ObjectUncertainty(BaseModel):
 
 class SceneSpec(BaseModel):
     scene_id: str
-    image_path: str
+    image_path: str = Field(
+        description="Relative to the storage directory, like ExportResult's paths — "
+        "a client builds the URL as /storage/{image_path}."
+    )
     intrinsics: Intrinsics
 
     graph: SceneGraph

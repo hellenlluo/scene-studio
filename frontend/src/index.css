@@ -9,11 +9,18 @@
   --accent: #4a9eff;
 
   color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   font-size: 14px;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -21,79 +28,331 @@ body {
   color: var(--text);
 }
 
-.app { display: flex; flex-direction: column; height: 100vh; }
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
 
 header {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--line);
 }
-header h1 { font-size: 1rem; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
-nav { display: flex; gap: 0.5rem; }
+header h1 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+nav {
+  display: flex;
+  gap: 0.5rem;
+}
 
 .tab {
-  display: flex; align-items: center; gap: 0.5rem;
-  background: transparent; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 0.35rem 0.75rem; cursor: pointer; font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
 }
-.tab--active { color: var(--text); border-color: var(--accent); }
-.dot { width: 7px; height: 7px; border-radius: 50%; }
-.dot--pass { background: var(--pass); }
-.dot--fail { background: var(--fail); }
+.tab--active {
+  color: var(--text);
+  border-color: var(--accent);
+}
 
-main { display: grid; grid-template-columns: 1fr 340px; flex: 1; min-height: 0; }
+/* Thin strip above the canvas, only as wide as the centre column — the sidebars sit
+   beside it, not under it. Shorter than the header so it reads as chrome for the
+   viewport, not a second menu. */
+.toolbar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  flex: none;
+  height: 2.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.tool:hover {
+  color: var(--text);
+}
+.tool--active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(74, 158, 255, 0.12);
+}
+.tool-key {
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.dot--pass {
+  background: var(--pass);
+}
+.dot--fail {
+  background: var(--fail);
+}
+
+/* Symmetric sidebars, so the canvas is centred on the screen and the world origin —
+   which the camera looks straight at — lands at the middle of the display rather than
+   off to one side. */
+main {
+  display: grid;
+  grid-template-columns: 15vw 1fr 15vw;
+  flex: 1;
+  min-height: 0;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stage-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+}
 
 .viewer-empty {
-  display: grid; place-items: center;
-  color: var(--muted); grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
 }
-.viewer-empty code { color: var(--text); }
+.viewer-empty code {
+  color: var(--text);
+}
 
 .panel {
   border-left: 1px solid var(--line);
   background: var(--panel);
-  padding: 1.25rem;
+  padding: 1.25rem 1rem;
   overflow-y: auto;
+  min-width: 0;
 }
-.panel h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.75rem; }
-.panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 1.5rem 0 0.5rem; }
+.panel--left {
+  border-left: none;
+  border-right: 1px solid var(--line);
+}
 
-.axes, .objects, .reasons { list-style: none; margin: 0; padding: 0; }
+.scene-list {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+.scene-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.scene-item:hover {
+  color: var(--text);
+}
+.scene-item--active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(74, 158, 255, 0.1);
+}
+.scene-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scene-count {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.6rem;
+  margin: 0;
+  font-size: 0.8rem;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+.panel h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 1.5rem 0 0.5rem;
+}
+
+.axes,
+.objects,
+.reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 
 .axis {
-  display: flex; justify-content: space-between;
-  padding: 0.4rem 0; border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
 }
-.axis-status { font-variant-numeric: tabular-nums; color: var(--muted); }
-.axis--pass .axis-status { color: var(--pass); }
-.axis--fail .axis-status { color: var(--fail); }
+.axis-status {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.axis--pass .axis-status {
+  color: var(--pass);
+}
+.axis--fail .axis-status {
+  color: var(--fail);
+}
 
-.verdict { font-weight: 600; letter-spacing: 0.06em; margin: 1rem 0 0.25rem; }
-.verdict--pass { color: var(--pass); }
-.verdict--fail { color: var(--fail); }
+.verdict {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 1rem 0 0.25rem;
+}
+.verdict--pass {
+  color: var(--pass);
+}
+.verdict--fail {
+  color: var(--fail);
+}
 
-.note { color: var(--muted); font-size: 0.85rem; margin: 0.35rem 0; line-height: 1.5; }
-.note--error { color: var(--fail); }
+.note {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.35rem 0;
+  line-height: 1.5;
+}
+.note--error {
+  color: var(--fail);
+}
 
+/* Stacked, not two columns. At 12.5vw the id and the category collided into
+   "obj_139_679side_table"; a sidebar this narrow has to spend vertical space instead
+   of squeezing horizontally. */
 .object {
-  display: flex; justify-content: space-between; width: 100%;
-  background: transparent; border: 0; border-bottom: 1px solid var(--line);
-  color: var(--text); padding: 0.45rem 0; cursor: pointer; font: inherit; text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  padding: 0.45rem 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
-.object--failed { color: var(--fail); }
-.object--selected { color: var(--accent); }
-.object-category { color: var(--muted); }
+.object--failed {
+  color: var(--fail);
+}
+.object--selected {
+  color: var(--accent);
+}
+.object-category {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 
-.reasons { padding: 0.35rem 0 0.6rem 0.75rem; }
-.reasons li { color: var(--fail); font-size: 0.85rem; line-height: 1.6; }
-.reasons-ok { color: var(--pass) !important; }
+.reasons {
+  padding: 0.35rem 0 0.6rem 0.6rem;
+  overflow-wrap: anywhere;
+}
+.reasons li {
+  color: var(--fail);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.reasons-ok {
+  color: var(--pass) !important;
+}
+.reasons-degraded {
+  color: var(--muted) !important;
+}
+
+.badge {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
 
 .repair {
-  width: 100%; margin-top: 1.25rem; padding: 0.6rem;
-  background: var(--accent); color: #0b0d11; border: 0; border-radius: 6px;
-  font: inherit; font-weight: 600; cursor: pointer;
+  width: 100%;
+  margin-top: 1.25rem;
+  padding: 0.6rem;
+  background: var(--accent);
+  color: #0b0d11;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
-.repair:disabled { opacity: 0.5; cursor: default; }
+.repair:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

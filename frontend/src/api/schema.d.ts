@@ -4,1096 +4,1140 @@
  */
 
 export interface paths {
-    "/api/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Job */
-        post: operations["create_job_api_jobs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  "/api/jobs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Job */
-        get: operations["get_job_api_jobs__job_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Create Job */
+    post: operations["create_job_api_jobs_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/jobs/{job_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Scenes */
-        get: operations["list_scenes_api_scenes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Job */
+    get: operations["get_job_api_jobs__job_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Scene */
-        get: operations["get_scene_api_scenes__scene_id__get"];
-        /**
-         * Edit Scene
-         * @description Apply a user edit, re-solve around it, and re-certify.
-         *
-         *     Everything is editable — pose, scale, support parent, mass. There is no wizard
-         *     and no gating, because the system does not know enough to decide what the user
-         *     is allowed to touch.
-         *
-         *     Edited values are written with Provenance.USER, which is what makes them
-         *     pinned: the next solve holds them fixed and moves everything else around
-         *     them. A scale anchor is the same mechanism expressed as an E_prior term with
-         *     sigma -> 0, and it propagates as far as the constraint graph is connected.
-         */
-        put: operations["edit_scene_api_scenes__scene_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** List Scenes */
+    get: operations["list_scenes_api_scenes_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}/repair": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Repair Scene
-         * @description Re-certify, apply the minimal correction, and re-export.
-         *
-         *     Synchronous, unlike the upload path: measured at roughly 70 ms to certify plus
-         *     20 ms to repair on a small scene, which is well inside a request. If scenes get
-         *     big enough that this stops being true it should move behind the job queue that
-         *     already exists rather than growing a timeout.
-         *
-         *     Both exports are regenerated because they are pure functions of the graph, and
-         *     a repaired scene whose MJCF still described the broken one would defeat the
-         *     point of certifying at all.
-         */
-        post: operations["repair_scene_api_scenes__scene_id__repair_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Scene */
+    get: operations["get_scene_api_scenes__scene_id__get"];
+    /**
+     * Edit Scene
+     * @description Apply a user edit, re-solve around it, and re-certify.
+     *
+     *     Everything is editable — pose, scale, support parent, mass. There is no wizard
+     *     and no gating, because the system does not know enough to decide what the user
+     *     is allowed to touch.
+     *
+     *     Edited values are written with Provenance.USER, which is what makes them
+     *     pinned: the next solve holds them fixed and moves everything else around
+     *     them. A scale anchor is the same mechanism expressed as an E_prior term with
+     *     sigma -> 0, and it propagates as far as the constraint graph is connected.
+     */
+    put: operations["edit_scene_api_scenes__scene_id__put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}/repair": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health */
-        get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Repair Scene
+     * @description Re-certify, apply the minimal correction, and re-export.
+     *
+     *     Synchronous, unlike the upload path: measured at roughly 70 ms to certify plus
+     *     20 ms to repair on a small scene, which is well inside a request. If scenes get
+     *     big enough that this stops being true it should move behind the job queue that
+     *     already exists rather than growing a timeout.
+     *
+     *     Both exports are regenerated because they are pure functions of the graph, and
+     *     a repaired scene whose MJCF still described the broken one would defeat the
+     *     point of certifying at all.
+     */
+    post: operations["repair_scene_api_scenes__scene_id__repair_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/health": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    /** Health */
+    get: operations["health_health_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        /**
-         * AssetFrame
-         * @description How a reconstruction model's raw output was brought into the canonical frame.
-         *
-         *     Models emit assets in different up-axes, different front-faces, and different
-         *     scale conventions — most normalise to a unit box. Recording the transform that
-         *     was stripped is what lets stage 6 optimise one scale variable per object
-         *     instead of two incompatible ones, and keeps the reconciliation auditable when
-         *     an object comes out sideways.
-         */
-        AssetFrame: {
-            /**
-             * Source
-             * @description Model that produced the asset, e.g. 'sam3d'.
-             */
-            source: string;
-            /** @default +z */
-            up_axis: components["schemas"]["Axis"];
-            /** @default -y */
-            front_axis: components["schemas"]["Axis"];
-            /**
-             * Rotation
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            rotation: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Normalization Scale
-             * @description The model's own internal normalisation, divided out here so it never gets confused with the physical scale the solver estimates.
-             * @default 1
-             */
-            normalization_scale: number;
-        };
-        /**
-         * Axis
-         * @enum {string}
-         */
-        Axis: "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
-        /**
-         * AxisStatus
-         * @enum {string}
-         */
-        AxisStatus: "pass" | "fail" | "not_applicable" | "not_run";
-        /** Body_create_job_api_jobs_post */
-        Body_create_job_api_jobs_post: {
-            /** Image */
-            image: string;
-        };
-        /**
-         * Certificate
-         * @description "Simulation-ready" as a checkable multi-axis contract rather than a vibe.
-         */
-        Certificate: {
-            /** @default not_run */
-            scale_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            stability_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            inertial_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            cost_status: components["schemas"]["AxisStatus"];
-            /** Scale */
-            scale?: components["schemas"]["ScaleCheck"][];
-            /** Stability */
-            stability?: components["schemas"]["StabilityCheck"][];
-            /** Inertial */
-            inertial?: components["schemas"]["InertialCheck"][];
-            cost?: components["schemas"]["CostCheck"] | null;
-            /**
-             * Penetration Tolerance M
-             * @description Populated from Settings.max_penetration_m by the certify stage; recorded on the certificate so a stored result stays interpretable after the setting changes. Non-zero because mesh discretisation produces sub-millimetre contacts on surfaces flush by design, and a zero-tolerance check would fail every well-modelled object. Results are reported against this value so their sensitivity to it is visible.
-             * @default 0.002
-             */
-            penetration_tolerance_m: number;
-        };
-        /** CostCheck */
-        CostCheck: {
-            proxy_tier: components["schemas"]["ProxyTier"];
-            /** Mean Step Time Ms */
-            mean_step_time_ms: number;
-            /** Budget Ms */
-            budget_ms: number;
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * DimensionPrior
-         * @description Class-conditioned real-world size, with the uncertainty that makes it usable.
-         *
-         *     E_prior is a Mahalanobis term weighted by 1/sigma^2, so the per-axis sigma is
-         *     not decoration: it is what lets "dishwasher: 60 cm +/- 2 cm" outweigh
-         *     "chair: 50 cm +/- 20 cm" instead of both pulling equally. A scalar
-         *     confidence cannot express that, because the tightness is per axis — an
-         *     interior door is pinned in width and height and nearly free in depth.
-         */
-        DimensionPrior: {
-            /** Dims M */
-            dims_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Sigma M
-             * @description Per-axis stddev. Feeds E_prior as 1/sigma^2.
-             */
-            sigma_m: [
-                number,
-                number,
-                number
-            ];
-        };
-        /**
-         * ExportResult
-         * @description Paths relative to the storage directory, not absolute.
-         *
-         *     These are what a client fetches through the `/storage` mount, so it builds the
-         *     URL as `/storage/{path}`. Storing the absolute form would be unusable to a
-         *     browser and would break the moment the storage directory moves — which it does
-         *     between a developer's machine and a test's temp dir.
-         */
-        ExportResult: {
-            /** Mjcf Path */
-            mjcf_path?: string | null;
-            /** Gltf Path */
-            gltf_path?: string | null;
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** InertialCheck */
-        InertialCheck: {
-            /** Object Id */
-            object_id: string;
-            /** Mass Density Volume Consistent */
-            mass_density_volume_consistent: boolean;
-            /** Positive Definite */
-            positive_definite: boolean;
-            /** Triangle Inequality */
-            triangle_inequality: boolean;
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * InertialProperties
-         * @description Assigned from a class-conditioned density prior; mass and inertia derived.
-         *
-         *     mass_kg and inertia_diag are functions of density and the *scaled* mesh
-         *     volume, so they are recomputed whenever the solver moves a scale rather than
-         *     being fitted independently. volume_m3 is retained because the inertial
-         *     certification axis checks mass, density and volume against each other, and
-         *     it cannot do that if only two of the three survive.
-         */
-        InertialProperties: {
-            /** Density Kg M3 */
-            density_kg_m3: number;
-            /** Volume M3 */
-            volume_m3: number;
-            /** Mass Kg */
-            mass_kg: number;
-            /**
-             * Com M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            com_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Inertia Diag
-             * @description Principal moments, part frame.
-             */
-            inertia_diag: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Principal Axes
-             * @description Part frame -> principal frame (MuJoCo iquat).
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            principal_axes: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Watertight
-             * @description False means volume, and therefore mass, is not trustworthy — trimesh will hand you a non-watertight mesh and a meaningless volume without complaining.
-             * @default false
-             */
-            watertight: boolean;
-        };
-        /** Intrinsics */
-        Intrinsics: {
-            /** Fx */
-            fx: number;
-            /** Fy */
-            fy: number;
-            /** Cx */
-            cx: number;
-            /** Cy */
-            cy: number;
-        };
-        /**
-         * JobState
-         * @enum {string}
-         */
-        JobState: "pending" | "running" | "succeeded" | "failed";
-        /** JobStatus */
-        JobStatus: {
-            /** Id */
-            id: string;
-            state: components["schemas"]["JobState"];
-            /** Current Stage */
-            current_stage: string | null;
-            /** Stage Status */
-            stage_status: {
-                [key: string]: unknown;
-            };
-            /** Error */
-            error: string | null;
-            /** Scene Id */
-            scene_id: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Finished At */
-            finished_at: string | null;
-        };
-        /**
-         * ObjectEdit
-         * @description A user edit. Every field is optional; whatever is set becomes a pinned
-         *     constraint held fixed while the rest of the scene re-solves around it.
-         */
-        ObjectEdit: {
-            /** Object Id */
-            object_id: string;
-            /** Scale */
-            scale?: number | null;
-            /** Position M */
-            position_m?: [
-                number,
-                number,
-                number
-            ] | null;
-            /** Orientation */
-            orientation?: [
-                number,
-                number,
-                number,
-                number
-            ] | null;
-            /** Supported By */
-            supported_by?: string | null;
-            /** Mass Kg */
-            mass_kg?: number | null;
-        };
-        /** ObjectLabel */
-        ObjectLabel: {
-            /** Object Id */
-            object_id: string;
-            /** Category */
-            category: string;
-            prior: components["schemas"]["DimensionPrior"];
-            /**
-             * Support Parent
-             * @description object_id of the supporting body, or None for the floor.
-             */
-            support_parent?: string | null;
-        };
-        /**
-         * ObjectUncertainty
-         * @description High uncertainty is not failure. An object can be confidently wrong or
-         *     uncertainly fine, and those warrant different user responses — which is why
-         *     this is a separate channel from Certificate rather than a field on it.
-         *
-         *     Every field is optional because reporting confidence obligates calibrating
-         *     it, and an uncalibrated signal is better absent than shown.
-         */
-        ObjectUncertainty: {
-            /** Object Id */
-            object_id: string;
-            /** Scale Variance */
-            scale_variance?: number | null;
-            /** Depth Prior Disagreement M */
-            depth_prior_disagreement_m?: number | null;
-            /** Used Obb Fallback */
-            used_obb_fallback?: boolean | null;
-            /** Visible Surface Fraction */
-            visible_surface_fraction?: number | null;
-        };
-        /**
-         * PartGeometry
-         * @description One rigid piece of an object.
-         *
-         *     Most objects are a single part. The hierarchy exists because a reconstruction
-         *     can come back as several rigidly-attached pieces — a lamp base and its shade —
-         *     and keeping them separate gives the collision proxy something better than one
-         *     box around the union.
-         */
-        PartGeometry: {
-            /** Part Id */
-            part_id: string;
-            /** Name */
-            name: string;
-            /** Parent Part Id */
-            parent_part_id?: string | null;
-            /** Visual Mesh Path */
-            visual_mesh_path?: string | null;
-            /** Collision Mesh Paths */
-            collision_mesh_paths?: string[];
-            /** @default obb */
-            proxy_tier: components["schemas"]["ProxyTier"];
-            /**
-             * Dims M
-             * @description Extent at unit object scale; multiply by SceneObject.scale.
-             */
-            dims_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Origin M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            origin_m: [
-                number,
-                number,
-                number
-            ];
-            inertial?: components["schemas"]["InertialProperties"] | null;
-            /**
-             * Visible Surface Fraction
-             * @description Observed fraction of the part's extent. Single-view depth sees the front shell only, so the rest is amodal inference. v2 uncertainty signal.
-             */
-            visible_surface_fraction?: number | null;
-        };
-        /**
-         * Provenance
-         * @description Where a value came from. Reported per field.
-         *
-         *     USER is the load-bearing one: a user-pinned value is held fixed while
-         *     everything else re-solves around it, so the solver reads this to decide
-         *     which variables are free.
-         * @enum {string}
-         */
-        Provenance: "model" | "derived" | "user" | "fallback";
-        /**
-         * ProxyTier
-         * @description Collision-geometry fidelity, and implicitly whether a mesh exists at all.
-         *
-         *     The floor is a whole-object mesh, not a box. OBB is the emergency rung — it
-         *     means reconstruction produced nothing usable.
-         * @enum {string}
-         */
-        ProxyTier: "obb" | "convex_hull" | "decomposed";
-        /**
-         * RepairAction
-         * @description The magnitude and the axis repaired are both recorded, because choosing a
-         *     correction badly discards information silently and that is the failure mode
-         *     worth engineering against.
-         */
-        RepairAction: {
-            kind: components["schemas"]["RepairKind"];
-            /** Target Id */
-            target_id: string;
-            /** Axis Repaired */
-            axis_repaired: string;
-            /**
-             * Delta Position M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            delta_position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Delta Scale
-             * @default 1
-             */
-            delta_scale: number;
-            /**
-             * Magnitude
-             * @description Size of the correction, for minimality.
-             * @default 0
-             */
-            magnitude: number;
-            /**
-             * Improved
-             * @description Whether revalidation actually got better. A repair that made things worse is discarded rather than reported.
-             * @default true
-             */
-            improved: boolean;
-        };
-        /**
-         * RepairKind
-         * @enum {string}
-         */
-        RepairKind: "snap_to_support" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
-        /** RepairResponse */
-        RepairResponse: {
-            scene: components["schemas"]["SceneEnvelope"];
-            /** Actions */
-            actions: components["schemas"]["RepairAction"][];
-            /** Converged */
-            converged: boolean;
-            /** Rounds Used */
-            rounds_used: number;
-        };
-        /**
-         * ScaleAnchor
-         * @description A user-supplied true dimension: E_prior with sigma -> 0, i.e. a hard constraint.
-         *
-         *     One anchor usually settles the whole scene, which is a consequence of the
-         *     coupled formulation rather than a coincidence — absolute scale is a single
-         *     global degree of freedom, and support and contact constraints propagate it
-         *     outward. Propagation reaches only as far as the constraint graph is
-         *     connected; an object with no contacts and no support parent gains nothing.
-         */
-        ScaleAnchor: {
-            /** Object Id */
-            object_id: string;
-            /**
-             * Axis
-             * @description 0 = width, 1 = height, 2 = depth.
-             */
-            axis: number;
-            /** Value M */
-            value_m: number;
-        };
-        /** ScaleCheck */
-        ScaleCheck: {
-            /** Object Id */
-            object_id: string;
-            /**
-             * Deviation Sigma
-             * @description Per-axis (fitted - prior) / sigma.
-             */
-            deviation_sigma: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Support Gap M
-             * @description Signed gap on the support contact. Negative is penetration.
-             * @default 0
-             */
-            support_gap_m: number;
-            /**
-             * Base Inside Parent
-             * @default true
-             */
-            base_inside_parent: boolean;
-            /**
-             * Passed
-             * @default true
-             */
-            passed: boolean;
-        };
-        /** SceneEditRequest */
-        SceneEditRequest: {
-            /** Objects */
-            objects?: components["schemas"]["ObjectEdit"][];
-            /** Anchors */
-            anchors?: components["schemas"]["ScaleAnchor"][];
-            /**
-             * Resolve
-             * @description Re-run stage 6 with the edits pinned, then re-certify.
-             * @default true
-             */
-            resolve: boolean;
-        };
-        /**
-         * SceneEnvelope
-         * @description A spec plus the row metadata a client needs but the spec does not carry.
-         *
-         *     `updated_at` is here because the exported `scene.glb` is rewritten in place at
-         *     the same URL every time a scene changes. Without a version to hang off the
-         *     request the browser serves its cached copy, and a repair looks like it did
-         *     nothing.
-         */
-        SceneEnvelope: {
-            spec: components["schemas"]["SceneSpec"];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** SceneGraph */
-        SceneGraph: {
-            /** Objects */
-            objects: components["schemas"]["SceneObject"][];
-            /**
-             * Floor Height M
-             * @default 0
-             */
-            floor_height_m: number;
-            /**
-             * Gravity Rotation
-             * @description Rotation applied in stage 5 to bring the fitted floor plane world-down. Everything after this assumes gravity along -Z.
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            gravity_rotation: [
-                number,
-                number,
-                number,
-                number
-            ];
-        };
-        /**
-         * SceneObject
-         * @description One object in the canonical, gravity-aligned scene graph.
-         *
-         *     scale, position_m and orientation are exactly the stage-6 decision variables.
-         *     Provenance decides which of them are free.
-         */
-        SceneObject: {
-            /** Provenance */
-            provenance?: {
-                [key: string]: components["schemas"]["Provenance"];
-            };
-            /** Object Id */
-            object_id: string;
-            label: components["schemas"]["ObjectLabel"];
-            frame: components["schemas"]["AssetFrame"];
-            /** Parts */
-            parts: components["schemas"]["PartGeometry"][];
-            /**
-             * Scale
-             * @description Isotropic. The s_i of stage 6.
-             * @default 1
-             */
-            scale: number;
-            /**
-             * Position M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Orientation
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            orientation: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Supported By
-             * @description object_id of the supporting body, or None for the floor.
-             */
-            supported_by?: string | null;
-            /**
-             * Degradation Reason
-             * @description Why this object came back worse than intended, when it did — reconstruction failed and it fell back to a box, say. Shown in the viewer, because 'we could not reconstruct this' is a different message to the user than 'this reconstructed but fails certification'.
-             */
-            degradation_reason?: string | null;
-        };
-        /** SceneSpec */
-        SceneSpec: {
-            /** Scene Id */
-            scene_id: string;
-            /**
-             * Image Path
-             * @description Relative to the storage directory, like ExportResult's paths — a client builds the URL as /storage/{image_path}.
-             */
-            image_path: string;
-            intrinsics: components["schemas"]["Intrinsics"];
-            graph: components["schemas"]["SceneGraph"];
-            certificate?: components["schemas"]["Certificate"];
-            /** Anchors */
-            anchors?: components["schemas"]["ScaleAnchor"][];
-            weights?: components["schemas"]["SolveWeights"];
-            diagnostics?: components["schemas"]["SolveDiagnostics"];
-            /** Repairs Applied */
-            repairs_applied?: components["schemas"]["RepairAction"][];
-            exports?: components["schemas"]["ExportResult"];
-            /** Uncertainty */
-            uncertainty?: components["schemas"]["ObjectUncertainty"][];
-        };
-        /** SceneSummary */
-        SceneSummary: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Object Count */
-            object_count: number;
-            /** Certified */
-            certified: boolean;
-            /** Axes */
-            axes: {
-                [key: string]: components["schemas"]["AxisStatus"];
-            };
-        };
-        /** SolveDiagnostics */
-        SolveDiagnostics: {
-            /**
-             * Iterations
-             * @default 0
-             */
-            iterations: number;
-            /**
-             * Converged
-             * @default false
-             */
-            converged: boolean;
-            /**
-             * Residual By Term
-             * @description Final E_depth, E_prior, E_sil, E_supp, E_pen.
-             */
-            residual_by_term?: {
-                [key: string]: number;
-            };
-            /**
-             * Scale Variance
-             * @description Inverse-Hessian diagonal at convergence, per object. Falls out of choosing Gauss-Newton for the smooth block; it is v2's primary confidence signal and the answer to which objects an anchor never reached.
-             */
-            scale_variance?: {
-                [key: string]: number;
-            };
-        };
-        /**
-         * SolveWeights
-         * @description The lambdas of stage 6's objective.
-         */
-        SolveWeights: {
-            /**
-             * Depth
-             * @default 1
-             */
-            depth: number;
-            /**
-             * Prior
-             * @default 1
-             */
-            prior: number;
-            /**
-             * Silhouette
-             * @default 0.5
-             */
-            silhouette: number;
-            /**
-             * Support
-             * @default 2
-             */
-            support: number;
-            /**
-             * Penetration
-             * @default 5
-             */
-            penetration: number;
-        };
-        /** StabilityCheck */
-        StabilityCheck: {
-            /** Object Id */
-            object_id: string;
-            /** Com Displacement M */
-            com_displacement_m: number;
-            /** Orientation Drift Deg */
-            orientation_drift_deg: number;
-            /**
-             * Initial Penetration M
-             * @description Measured at t=0. Once the solver starts pushing bodies apart the overlap is gone and the reconstruction error that caused it is unobservable.
-             */
-            initial_penetration_m: number;
-            /** Passed */
-            passed: boolean;
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
-        };
+  schemas: {
+    /**
+     * AssetFrame
+     * @description How a reconstruction model's raw output was brought into the canonical frame.
+     *
+     *     Models emit assets in different up-axes, different front-faces, and different
+     *     scale conventions — most normalise to a unit box. Recording the transform that
+     *     was stripped is what lets stage 6 optimise one scale variable per object
+     *     instead of two incompatible ones, and keeps the reconciliation auditable when
+     *     an object comes out sideways.
+     */
+    AssetFrame: {
+      /**
+       * Source
+       * @description Model that produced the asset, e.g. 'sam3d'.
+       */
+      source: string;
+      /** @default +z */
+      up_axis: components["schemas"]["Axis"];
+      /** @default -y */
+      front_axis: components["schemas"]["Axis"];
+      /**
+       * Rotation
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      rotation: [number, number, number, number];
+      /**
+       * Normalization Scale
+       * @description The model's own internal normalisation, divided out here so it never gets confused with the physical scale the solver estimates.
+       * @default 1
+       */
+      normalization_scale: number;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    /**
+     * Axis
+     * @enum {string}
+     */
+    Axis: "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
+    /**
+     * AxisStatus
+     * @enum {string}
+     */
+    AxisStatus: "pass" | "fail" | "not_applicable" | "not_run";
+    /** Body_create_job_api_jobs_post */
+    Body_create_job_api_jobs_post: {
+      /** Image */
+      image: string;
+    };
+    /**
+     * CameraPose
+     * @description Where the photo was taken from, in world coordinates.
+     *
+     *     Recoverable exactly rather than guessed: the reconstruction is built in camera
+     *     coordinates, so the camera sits at the origin of the frame reconcile rotates and
+     *     shifts. Its height above the floor falls out of the floor fit — on one room,
+     *     1.16 m, which is a plausible standing eye level and a free sanity check on the
+     *     plane.
+     *
+     *     The viewer opens from here so a reconstruction can be compared against the photo
+     *     it came from without the user hunting for the angle.
+     */
+    CameraPose: {
+      /**
+       * Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      position_m: [number, number, number];
+      /**
+       * Forward
+       * @description Unit view direction.
+       * @default [
+       *       0,
+       *       1,
+       *       0
+       *     ]
+       */
+      forward: [number, number, number];
+      /**
+       * Up
+       * @default [
+       *       0,
+       *       0,
+       *       1
+       *     ]
+       */
+      up: [number, number, number];
+      /**
+       * Vertical Fov Deg
+       * @description Derived from the intrinsics, so the framing matches.
+       * @default 60
+       */
+      vertical_fov_deg: number;
+    };
+    /**
+     * Certificate
+     * @description "Simulation-ready" as a checkable multi-axis contract rather than a vibe.
+     */
+    Certificate: {
+      /** @default not_run */
+      scale_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      stability_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      inertial_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      cost_status: components["schemas"]["AxisStatus"];
+      /** Scale */
+      scale?: components["schemas"]["ScaleCheck"][];
+      /** Stability */
+      stability?: components["schemas"]["StabilityCheck"][];
+      /** Inertial */
+      inertial?: components["schemas"]["InertialCheck"][];
+      cost?: components["schemas"]["CostCheck"] | null;
+      /**
+       * Penetration Tolerance M
+       * @description Populated from Settings.max_penetration_m by the certify stage; recorded on the certificate so a stored result stays interpretable after the setting changes. Non-zero because mesh discretisation produces sub-millimetre contacts on surfaces flush by design, and a zero-tolerance check would fail every well-modelled object. Results are reported against this value so their sensitivity to it is visible.
+       * @default 0.002
+       */
+      penetration_tolerance_m: number;
+    };
+    /** CostCheck */
+    CostCheck: {
+      proxy_tier: components["schemas"]["ProxyTier"];
+      /** Mean Step Time Ms */
+      mean_step_time_ms: number;
+      /** Budget Ms */
+      budget_ms: number;
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * DimensionPrior
+     * @description Class-conditioned real-world size, with the uncertainty that makes it usable.
+     *
+     *     E_prior is a Mahalanobis term weighted by 1/sigma^2, so the per-axis sigma is
+     *     not decoration: it is what lets "dishwasher: 60 cm +/- 2 cm" outweigh
+     *     "chair: 50 cm +/- 20 cm" instead of both pulling equally. A scalar
+     *     confidence cannot express that, because the tightness is per axis — an
+     *     interior door is pinned in width and height and nearly free in depth.
+     */
+    DimensionPrior: {
+      /** Dims M */
+      dims_m: [number, number, number];
+      /**
+       * Sigma M
+       * @description Per-axis stddev. Feeds E_prior as 1/sigma^2.
+       */
+      sigma_m: [number, number, number];
+    };
+    /**
+     * ExportResult
+     * @description Paths relative to the storage directory, not absolute.
+     *
+     *     These are what a client fetches through the `/storage` mount, so it builds the
+     *     URL as `/storage/{path}`. Storing the absolute form would be unusable to a
+     *     browser and would break the moment the storage directory moves — which it does
+     *     between a developer's machine and a test's temp dir.
+     */
+    ExportResult: {
+      /** Mjcf Path */
+      mjcf_path?: string | null;
+      /** Gltf Path */
+      gltf_path?: string | null;
+    };
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components["schemas"]["ValidationError"][];
+    };
+    /** InertialCheck */
+    InertialCheck: {
+      /** Object Id */
+      object_id: string;
+      /** Mass Density Volume Consistent */
+      mass_density_volume_consistent: boolean;
+      /** Positive Definite */
+      positive_definite: boolean;
+      /** Triangle Inequality */
+      triangle_inequality: boolean;
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * InertialProperties
+     * @description Assigned from a class-conditioned density prior; mass and inertia derived.
+     *
+     *     mass_kg and inertia_diag are functions of density and the *scaled* mesh
+     *     volume, so they are recomputed whenever the solver moves a scale rather than
+     *     being fitted independently. volume_m3 is retained because the inertial
+     *     certification axis checks mass, density and volume against each other, and
+     *     it cannot do that if only two of the three survive.
+     */
+    InertialProperties: {
+      /** Density Kg M3 */
+      density_kg_m3: number;
+      /**
+       * Volume M3
+       * @description Enclosed volume of the **visual** mesh, not the collision proxy and not the bounding box. Measured on a dining table: the mesh encloses 0.064 m3, its convex hull 0.962 m3, its bounding box 1.013 m3 — so taking volume from the proxy gives a 15x mass error on any open shape. The two meshes exist for different purposes and this is the one that means mass.
+       */
+      volume_m3: number;
+      /** Mass Kg */
+      mass_kg: number;
+      /**
+       * Com M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      com_m: [number, number, number];
+      /**
+       * Inertia Diag
+       * @description Principal moments, part frame.
+       */
+      inertia_diag: [number, number, number];
+      /**
+       * Principal Axes
+       * @description Part frame -> principal frame (MuJoCo iquat).
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      principal_axes: [number, number, number, number];
+      /**
+       * Watertight
+       * @description False means volume, and therefore mass, is not trustworthy — trimesh will hand you a non-watertight mesh and a meaningless volume without complaining.
+       * @default false
+       */
+      watertight: boolean;
+    };
+    /** Intrinsics */
+    Intrinsics: {
+      /** Fx */
+      fx: number;
+      /** Fy */
+      fy: number;
+      /** Cx */
+      cx: number;
+      /** Cy */
+      cy: number;
+    };
+    /**
+     * JobState
+     * @enum {string}
+     */
+    JobState: "pending" | "running" | "succeeded" | "failed";
+    /** JobStatus */
+    JobStatus: {
+      /** Id */
+      id: string;
+      state: components["schemas"]["JobState"];
+      /** Current Stage */
+      current_stage: string | null;
+      /** Stage Status */
+      stage_status: {
+        [key: string]: unknown;
+      };
+      /** Error */
+      error: string | null;
+      /** Scene Id */
+      scene_id: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Finished At */
+      finished_at: string | null;
+    };
+    /**
+     * Material
+     * @description Dominant surface material, which is what density is keyed on.
+     *
+     *     Coarse on purpose. A closed vocabulary is something a VLM judges reliably from
+     *     a photo, whereas a number in kg/m3 is not — so the model picks a bucket and
+     *     the density comes from a table.
+     * @enum {string}
+     */
+    Material:
+      | "wood"
+      | "metal"
+      | "plastic"
+      | "glass"
+      | "ceramic"
+      | "fabric"
+      | "stone"
+      | "paper"
+      | "other";
+    /**
+     * ObjectEdit
+     * @description A user edit. Every field is optional; whatever is set becomes a pinned
+     *     constraint held fixed while the rest of the scene re-solves around it.
+     */
+    ObjectEdit: {
+      /** Object Id */
+      object_id: string;
+      /** Scale */
+      scale?: number | null;
+      /** Position M */
+      position_m?: [number, number, number] | null;
+      /** Orientation */
+      orientation?: [number, number, number, number] | null;
+      /** Supported By */
+      supported_by?: string | null;
+      /** Mass Kg */
+      mass_kg?: number | null;
+    };
+    /** ObjectLabel */
+    ObjectLabel: {
+      /** Object Id */
+      object_id: string;
+      /** Category */
+      category: string;
+      /**
+       * @description Feeds the density prior. Only meaningful against a *mesh* volume: material density times a bounding-box volume overestimates open shapes by an order of magnitude. See app.pipeline.inertia.
+       * @default other
+       */
+      material: components["schemas"]["Material"];
+      /** @description Absent until there is a measured priors table to draw on. A VLM asked for metres is guessing, and a fabricated prior with an invented sigma is worse than none: E_prior weights by 1/sigma^2, so a made-up sigma is a made-up weight. While this is None, absolute scale rests entirely on metric depth — which is row 1 of the ablation, not a workaround. */
+      prior?: components["schemas"]["DimensionPrior"] | null;
+      /**
+       * Support Parent
+       * @description object_id of the supporting body, or None for the floor. The VLM supplies an initial guess; reconcile overrides it with measured contact once geometry exists, since by then it is observable rather than inferred.
+       */
+      support_parent?: string | null;
+    };
+    /**
+     * ObjectUncertainty
+     * @description High uncertainty is not failure. An object can be confidently wrong or
+     *     uncertainly fine, and those warrant different user responses — which is why
+     *     this is a separate channel from Certificate rather than a field on it.
+     *
+     *     Every field is optional because reporting confidence obligates calibrating
+     *     it, and an uncalibrated signal is better absent than shown.
+     */
+    ObjectUncertainty: {
+      /** Object Id */
+      object_id: string;
+      /** Scale Variance */
+      scale_variance?: number | null;
+      /** Depth Prior Disagreement M */
+      depth_prior_disagreement_m?: number | null;
+      /** Used Obb Fallback */
+      used_obb_fallback?: boolean | null;
+      /** Visible Surface Fraction */
+      visible_surface_fraction?: number | null;
+    };
+    /**
+     * PartGeometry
+     * @description One rigid piece of an object.
+     *
+     *     Most objects are a single part. The hierarchy exists because a reconstruction
+     *     can come back as several rigidly-attached pieces — a lamp base and its shade —
+     *     and keeping them separate gives the collision proxy something better than one
+     *     box around the union.
+     */
+    PartGeometry: {
+      /** Part Id */
+      part_id: string;
+      /** Name */
+      name: string;
+      /** Parent Part Id */
+      parent_part_id?: string | null;
+      /** Visual Mesh Path */
+      visual_mesh_path?: string | null;
+      /** Collision Mesh Paths */
+      collision_mesh_paths?: string[];
+      /** @default obb */
+      proxy_tier: components["schemas"]["ProxyTier"];
+      /**
+       * Dims M
+       * @description Extent at unit object scale; multiply by SceneObject.scale.
+       */
+      dims_m: [number, number, number];
+      /**
+       * Origin M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      origin_m: [number, number, number];
+      /**
+       * Source Volume M3
+       * @description Enclosed volume measured on the mesh **as reconstructed**, before decimation. Mass is computed from this rather than from the stored file: decimation is what makes a 22 MB mesh shippable, but it breaks watertightness, and trimesh's volume is only meaningful on a closed surface. Measured on one object — 1.1M faces to 20k changed the volume by 0.18%, so the loss is in the guarantee, not the number.
+       */
+      source_volume_m3?: number | null;
+      /**
+       * Source Watertight
+       * @description Whether the mesh was closed *before* decimation, and so whether `source_volume_m3` can be trusted. Pessimistic by default.
+       * @default false
+       */
+      source_watertight: boolean;
+      inertial?: components["schemas"]["InertialProperties"] | null;
+      /**
+       * Visible Surface Fraction
+       * @description Observed fraction of the part's extent. Single-view depth sees the front shell only, so the rest is amodal inference. v2 uncertainty signal.
+       */
+      visible_surface_fraction?: number | null;
+    };
+    /**
+     * Provenance
+     * @description Where a value came from. Reported per field.
+     *
+     *     USER is the load-bearing one: a user-pinned value is held fixed while
+     *     everything else re-solves around it, so the solver reads this to decide
+     *     which variables are free.
+     * @enum {string}
+     */
+    Provenance: "model" | "derived" | "user" | "fallback";
+    /**
+     * ProxyTier
+     * @description Collision-geometry fidelity.
+     *
+     *     Describes the *collision* representation specifically, which stays OBB until the
+     *     inertia stage runs CoACD over the visual mesh. Whether reconstruction succeeded
+     *     is a separate question, answered by `PartGeometry.visual_mesh_path` being set —
+     *     an object can have a real mesh and still be colliding as a box.
+     * @enum {string}
+     */
+    ProxyTier: "obb" | "convex_hull" | "decomposed";
+    /**
+     * RepairAction
+     * @description The magnitude and the axis repaired are both recorded, because choosing a
+     *     correction badly discards information silently and that is the failure mode
+     *     worth engineering against.
+     */
+    RepairAction: {
+      kind: components["schemas"]["RepairKind"];
+      /** Target Id */
+      target_id: string;
+      /** Axis Repaired */
+      axis_repaired: string;
+      /**
+       * Delta Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      delta_position_m: [number, number, number];
+      /**
+       * Delta Scale
+       * @default 1
+       */
+      delta_scale: number;
+      /**
+       * Magnitude
+       * @description Size of the correction, for minimality.
+       * @default 0
+       */
+      magnitude: number;
+      /**
+       * Improved
+       * @description Whether revalidation actually got better. A repair that made things worse is discarded rather than reported.
+       * @default true
+       */
+      improved: boolean;
+    };
+    /**
+     * RepairKind
+     * @enum {string}
+     */
+    RepairKind:
+      | "snap_to_support"
+      | "resolve_penetration"
+      | "rescale"
+      | "upgrade_proxy_tier";
+    /** RepairResponse */
+    RepairResponse: {
+      scene: components["schemas"]["SceneEnvelope"];
+      /** Actions */
+      actions: components["schemas"]["RepairAction"][];
+      /** Converged */
+      converged: boolean;
+      /** Rounds Used */
+      rounds_used: number;
+    };
+    /**
+     * ScaleAnchor
+     * @description A user-supplied true dimension: E_prior with sigma -> 0, i.e. a hard constraint.
+     *
+     *     One anchor usually settles the whole scene, which is a consequence of the
+     *     coupled formulation rather than a coincidence — absolute scale is a single
+     *     global degree of freedom, and support and contact constraints propagate it
+     *     outward. Propagation reaches only as far as the constraint graph is
+     *     connected; an object with no contacts and no support parent gains nothing.
+     */
+    ScaleAnchor: {
+      /** Object Id */
+      object_id: string;
+      /**
+       * Axis
+       * @description 0 = width, 1 = height, 2 = depth.
+       */
+      axis: number;
+      /** Value M */
+      value_m: number;
+    };
+    /** ScaleCheck */
+    ScaleCheck: {
+      /** Object Id */
+      object_id: string;
+      /**
+       * Deviation Sigma
+       * @description Per-axis (fitted - prior) / sigma.
+       */
+      deviation_sigma: [number, number, number];
+      /**
+       * Support Gap M
+       * @description Signed gap on the support contact. Negative is penetration.
+       * @default 0
+       */
+      support_gap_m: number;
+      /**
+       * Base Inside Parent
+       * @default true
+       */
+      base_inside_parent: boolean;
+      /**
+       * Passed
+       * @default true
+       */
+      passed: boolean;
+    };
+    /** SceneEditRequest */
+    SceneEditRequest: {
+      /** Objects */
+      objects?: components["schemas"]["ObjectEdit"][];
+      /** Anchors */
+      anchors?: components["schemas"]["ScaleAnchor"][];
+      /**
+       * Resolve
+       * @description Re-run stage 6 with the edits pinned, then re-certify.
+       * @default true
+       */
+      resolve: boolean;
+    };
+    /**
+     * SceneEnvelope
+     * @description A spec plus the row metadata a client needs but the spec does not carry.
+     *
+     *     `updated_at` is here because the exported `scene.glb` is rewritten in place at
+     *     the same URL every time a scene changes. Without a version to hang off the
+     *     request the browser serves its cached copy, and a repair looks like it did
+     *     nothing.
+     */
+    SceneEnvelope: {
+      spec: components["schemas"]["SceneSpec"];
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+    };
+    /** SceneGraph */
+    SceneGraph: {
+      /** Objects */
+      objects: components["schemas"]["SceneObject"][];
+      camera?: components["schemas"]["CameraPose"] | null;
+      /**
+       * Floor Height M
+       * @default 0
+       */
+      floor_height_m: number;
+      /**
+       * World Offset M
+       * @description Translation already applied to bring the scene's horizontal centre onto the origin.
+       *
+       *     Reconstruction happens in camera coordinates, so the untranslated origin is wherever the photographer stood and a scene lands somewhere different for every photo. That is correct and unhelpful: a viewer with one fixed camera, and a user comparing two reconstructions, both want the scene in the same place. Recording the offset rather than discarding it keeps the frames relatable — `solve` measures against depth observations that are still in camera coordinates, and has to undo this to compare like with like.
+       *
+       *     Horizontal only. Z is the floor, fixed by the plane fit and shared with MJCF's ground plane, so shifting it would put objects above a floor that does not move.
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      world_offset_m: [number, number, number];
+      /**
+       * Gravity Rotation
+       * @description Rotation applied in stage 5 to bring the fitted floor plane world-down. Everything after this assumes gravity along -Z.
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      gravity_rotation: [number, number, number, number];
+    };
+    /**
+     * SceneObject
+     * @description One object in the canonical, gravity-aligned scene graph.
+     *
+     *     scale, position_m and orientation are exactly the stage-6 decision variables.
+     *     Provenance decides which of them are free.
+     */
+    SceneObject: {
+      /** Provenance */
+      provenance?: {
+        [key: string]: components["schemas"]["Provenance"];
+      };
+      /** Object Id */
+      object_id: string;
+      label: components["schemas"]["ObjectLabel"];
+      frame: components["schemas"]["AssetFrame"];
+      /** Parts */
+      parts: components["schemas"]["PartGeometry"][];
+      /**
+       * Scale
+       * @description Isotropic. The s_i of stage 6.
+       * @default 1
+       */
+      scale: number;
+      /**
+       * Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      position_m: [number, number, number];
+      /**
+       * Orientation
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      orientation: [number, number, number, number];
+      /**
+       * Supported By
+       * @description object_id of the supporting body, or None for the floor.
+       */
+      supported_by?: string | null;
+      /**
+       * Degradation Reason
+       * @description Why this object came back worse than intended, when it did — reconstruction failed and it fell back to a box, say. Shown in the viewer, because 'we could not reconstruct this' is a different message to the user than 'this reconstructed but fails certification'.
+       */
+      degradation_reason?: string | null;
+    };
+    /** SceneSpec */
+    SceneSpec: {
+      /** Scene Id */
+      scene_id: string;
+      /**
+       * Image Path
+       * @description Relative to the storage directory, like ExportResult's paths — a client builds the URL as /storage/{image_path}.
+       */
+      image_path: string;
+      intrinsics: components["schemas"]["Intrinsics"];
+      graph: components["schemas"]["SceneGraph"];
+      certificate?: components["schemas"]["Certificate"];
+      /** Anchors */
+      anchors?: components["schemas"]["ScaleAnchor"][];
+      weights?: components["schemas"]["SolveWeights"];
+      diagnostics?: components["schemas"]["SolveDiagnostics"];
+      /** Repairs Applied */
+      repairs_applied?: components["schemas"]["RepairAction"][];
+      exports?: components["schemas"]["ExportResult"];
+      /** Uncertainty */
+      uncertainty?: components["schemas"]["ObjectUncertainty"][];
+    };
+    /** SceneSummary */
+    SceneSummary: {
+      /** Id */
+      id: string;
+      /** Name */
+      name: string;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+      /** Object Count */
+      object_count: number;
+      /** Certified */
+      certified: boolean;
+      /** Axes */
+      axes: {
+        [key: string]: components["schemas"]["AxisStatus"];
+      };
+    };
+    /** SolveDiagnostics */
+    SolveDiagnostics: {
+      /**
+       * Iterations
+       * @default 0
+       */
+      iterations: number;
+      /**
+       * Converged
+       * @default false
+       */
+      converged: boolean;
+      /**
+       * Residual By Term
+       * @description Final E_depth, E_prior, E_sil, E_supp, E_pen.
+       */
+      residual_by_term?: {
+        [key: string]: number;
+      };
+      /**
+       * Scale Variance
+       * @description Inverse-Hessian diagonal at convergence, per object. Falls out of choosing Gauss-Newton for the smooth block; it is v2's primary confidence signal and the answer to which objects an anchor never reached.
+       */
+      scale_variance?: {
+        [key: string]: number;
+      };
+    };
+    /**
+     * SolveWeights
+     * @description The lambdas of stage 6's objective.
+     */
+    SolveWeights: {
+      /**
+       * Depth
+       * @default 1
+       */
+      depth: number;
+      /**
+       * Prior
+       * @default 1
+       */
+      prior: number;
+      /**
+       * Silhouette
+       * @default 0.5
+       */
+      silhouette: number;
+      /**
+       * Support
+       * @default 2
+       */
+      support: number;
+      /**
+       * Penetration
+       * @default 5
+       */
+      penetration: number;
+    };
+    /** StabilityCheck */
+    StabilityCheck: {
+      /** Object Id */
+      object_id: string;
+      /** Com Displacement M */
+      com_displacement_m: number;
+      /** Orientation Drift Deg */
+      orientation_drift_deg: number;
+      /**
+       * Initial Penetration M
+       * @description Measured at t=0. Once the solver starts pushing bodies apart the overlap is gone and the reconstruction error that caused it is unobservable.
+       */
+      initial_penetration_m: number;
+      /** Passed */
+      passed: boolean;
+    };
+    /** ValidationError */
+    ValidationError: {
+      /** Location */
+      loc: (string | number)[];
+      /** Message */
+      msg: string;
+      /** Error Type */
+      type: string;
+      /** Input */
+      input?: unknown;
+      /** Context */
+      ctx?: Record<string, never>;
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    create_job_api_jobs_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_create_job_api_jobs_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  create_job_api_jobs_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    get_job_api_jobs__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "multipart/form-data": components["schemas"]["Body_create_job_api_jobs_post"];
+      };
     };
-    list_scenes_api_scenes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneSummary"][];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["JobStatus"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
-    get_scene_api_scenes__scene_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  get_job_api_jobs__job_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        job_id: string;
+      };
+      cookie?: never;
     };
-    edit_scene_api_scenes__scene_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SceneEditRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["JobStatus"];
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
-    repair_scene_api_scenes__scene_id__repair_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepairResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  list_scenes_api_scenes_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["SceneSummary"][];
         };
+      };
     };
+  };
+  get_scene_api_scenes__scene_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SceneEnvelope"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  edit_scene_api_scenes__scene_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SceneEditRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SceneEnvelope"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  repair_scene_api_scenes__scene_id__repair_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RepairResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  health_health_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: string;
+          };
+        };
+      };
+    };
+  };
 }

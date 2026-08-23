@@ -26,10 +26,16 @@ def _gltf_json(blob: bytes) -> dict:
 
 
 def _scene_space_bounds(scene, node: str):
-    """Node bounds back in scene coordinates, undoing the Y-up root."""
+    """Node bounds back in scene coordinates, undoing the root transform.
+
+    The root carries the Y-up conversion *and* the horizontal recentring, so both have
+    to come off. Taking the root's own matrix rather than a hard-coded constant keeps
+    this honest if more presentation ends up on that node.
+    """
+    root = scene.graph.get(frame_to=gltf.ROOT_NODE, frame_from="world")[0]
     transform, geometry_name = scene.graph[node]
     mesh = scene.geometry[geometry_name].copy()
-    mesh.apply_transform(np.linalg.inv(gltf._Z_UP_TO_Y_UP) @ transform)
+    mesh.apply_transform(np.linalg.inv(root) @ transform)
     return mesh.bounds
 
 
@@ -107,7 +113,23 @@ def test_the_root_node_carries_the_y_up_conversion():
     assert root["name"] == gltf.ROOT_NODE
 
     matrix = np.asarray(root["matrix"]).reshape(4, 4).T
-    assert matrix == pytest.approx(gltf._Z_UP_TO_Y_UP, abs=1e-9)
+    # Rotation only: the root also carries the horizontal recentring translation.
+    assert matrix[:3, :3] == pytest.approx(gltf._Z_UP_TO_Y_UP[:3, :3], abs=1e-9)
+
+
+def test_export_does_not_move_objects():
+    """The exporter is a change of representation, not of coordinates: the numbers in
+    the GLB have to be the numbers in SceneSpec, or a gizmo reading a world position
+    off the rendered object writes back a value shifted by the difference."""
+    graph = scenes.kitchen()
+    scene = gltf.build_scene(graph)
+    names = [mjcf.body_name(o.object_id, o.root_part.part_id) for o in graph.objects]
+    offsets = [
+        _scene_space_bounds(scene, name)[0] - world_aabb(o)[0]
+        for name, o in zip(names, graph.objects, strict=True)
+    ]
+    for offset in offsets:
+        assert offset == pytest.approx(np.zeros(3), abs=1e-9)
 
 
 def test_child_transforms_stay_in_scene_coordinates():

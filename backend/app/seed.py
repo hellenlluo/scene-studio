@@ -22,11 +22,13 @@ point rather than part of the pipeline.
 import logging
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.certify import certify
 from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.export import gltf, mjcf
+from app.geometry import recentre
 from app.models import Job, JobState, Scene
 from app.pipeline.base import PipelineContext
 from app.schemas import ExportResult, Intrinsics, SceneSpec
@@ -52,7 +54,10 @@ def build_spec(scene_id: str, factory_name: str) -> SceneSpec:
     settings = get_settings()
     settings.ensure_dirs()
 
-    graph = getattr(fixtures, factory_name)()
+    # Recentred like a reconstructed scene, so the viewer's one fixed camera frames
+    # the fixtures the same way it frames a photo. `reconcile` does this for real
+    # scenes; the fixtures never go through it.
+    graph = recentre(getattr(fixtures, factory_name)())
     ctx = PipelineContext.create(scene_id, settings.uploads_dir / f"{scene_id}.placeholder")
 
     # The image only feeds the artifact cache key, and PipelineContext hashes its
@@ -71,6 +76,117 @@ def build_spec(scene_id: str, factory_name: str) -> SceneSpec:
             gltf_path=settings.storage_relative(gltf.write_gltf(graph, out)),
         ),
     )
+
+
+def seed_photo(image_path: Path, scene_id: str | None = None) -> str:
+    """Run the real stages on a real photo and store the result.
+
+    Stops before `solve` and `inertia`, which do not exist yet. What lands in the
+    database is therefore the **uncoupled reconstruction**: objects sized and placed
+    from depth, levelled to a fitted floor, with no physics feedback and no mass.
+
+    It is not expected to certify, and that is the point — this is row one of the
+    ablation, and the certificate measures how far off it is. The inertial axis
+    reports NOT_APPLICABLE rather than inventing masses nobody computed.
+
+    Stages go through the orchestrator's cache, so a second run on the same photo
+    costs nothing. The first costs a few API calls and a couple of minutes.
+    """
+    from app.pipeline import depth, labeling, reconcile, rigid, segment
+    from app.pipeline.orchestrator import _run_stage
+    from app.schemas import StageName
+
+    settings = get_settings()
+    settings.ensure_dirs()
+
+    scene_id = scene_id or f"photo-{image_path.stem}"
+    ctx = PipelineContext.create(scene_id, image_path)
+    report = lambda stage, state, secs: log.info("  %s: %s", stage, state)  # noqa: E731
+
+    concepts = labeling.inventory(ctx)
+    seg = _run_stage(
+        ctx,
+        StageName.SEGMENT,
+        segment.SegmentResult,
+        lambda: segment.run(ctx, concepts),
+        (concepts,),
+        report,
+    )
+    dep = _run_stage(ctx, StageName.DEPTH, depth.DepthResult, lambda: depth.run(ctx), (), report)
+    lab = _run_stage(
+        ctx,
+        StageName.LABEL,
+        labeling.LabelResult,
+        lambda: labeling.run(ctx, seg),
+        (seg,),
+        report,
+    )
+    rec = _run_stage(
+        ctx,
+        StageName.RECONSTRUCT,
+        rigid.ReconstructionResult,
+        lambda: rigid.run(ctx, seg, lab),
+        (seg, lab),
+        report,
+    )
+    graph = _run_stage(
+        ctx,
+        StageName.RECONCILE,
+        reconcile.SceneGraph,
+        lambda: reconcile.run(ctx, rec, seg, dep, lab),
+        (rec, seg, dep, lab),
+        report,
+    )
+
+    out = ctx.workdir()
+    spec = SceneSpec(
+        scene_id=scene_id,
+        image_path=settings.storage_relative(image_path),
+        intrinsics=dep.intrinsics,
+        graph=graph,
+        certificate=certify.run(ctx, graph),
+        exports=ExportResult(
+            mjcf_path=settings.storage_relative(mjcf.write_mjcf(graph, out)),
+            gltf_path=settings.storage_relative(gltf.write_gltf(graph, out)),
+        ),
+    )
+    _store(scene_id, image_path.stem, spec)
+
+    cert = spec.certificate
+    print(f"  {scene_id}: {len(graph.objects)} objects")
+    print(f"    axes    : { {k: v.value for k, v in cert.axes.items()} }")
+    print(f"    failing : {sorted(cert.failing_object_ids())}")
+    return scene_id
+
+
+def _store(scene_id: str, name: str, spec: SceneSpec) -> None:
+    init_db()
+    db = SessionLocal()
+    try:
+        for existing in (db.get(Scene, scene_id), db.get(Job, scene_id)):
+            if existing is not None:
+                db.delete(existing)
+        db.flush()
+        db.add(
+            Job(
+                id=scene_id,
+                state=JobState.SUCCEEDED,
+                image_path=spec.image_path,
+                finished_at=datetime.now(UTC),
+            )
+        )
+        db.add(
+            Scene(
+                id=scene_id,
+                job_id=scene_id,
+                name=name,
+                image_path=spec.image_path,
+                spec=spec.model_dump(mode="json"),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def seed() -> list[str]:
@@ -120,6 +236,10 @@ def seed() -> list[str]:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if len(sys.argv) > 1:
+        print(f"running the pipeline on {sys.argv[1]}:")
+        seed_photo(Path(sys.argv[1]))
+        return 0
     print("seeding fixture scenes:")
     seed()
     return 0

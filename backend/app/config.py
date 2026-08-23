@@ -53,6 +53,35 @@ class Settings(BaseSettings):
         "relative-depth only and cannot carry the size role of E_depth.",
     )
 
+    # --- stage 4: reconstruction ---
+    max_mesh_faces: int = Field(
+        default=40_000,
+        description="Decimation target for reconstructed meshes. SAM 3D returns "
+        "hundreds of thousands of faces — one side table came back at 1.1M faces "
+        "and 22 MB, which is unusable in a browser and slow in MuJoCo.\n\n"
+        "The binding constraint is not file size but `max_penetration_m`: mesh error "
+        "and the certification tolerance are the same kind of quantity, so a mesh "
+        "wrong by more than delta can cause spurious penetration failures or hide "
+        "real ones. Measured on a ~1.2 m object, mean surface deviation is 0.12 mm "
+        "at 20k faces, 0.36 mm at 5k, 0.96 mm at 1k, and 2.2 mm at 500 — where it "
+        "crosses the 2 mm tolerance and volume error jumps to 5%. 5k leaves a "
+        "comfortable margin at 0.09 MB per object.\n\n"
+        "Raised from 5k to 40k when textured reconstruction was turned on, because "
+        "decimation discards UVs: any mesh crossing this threshold loses its material, "
+        "so the number stopped being a pure size/accuracy trade-off and became the "
+        "line between a textured object and a grey one.\n\n"
+        "The headroom is real rather than generous. At ProxyTier.OBB collision uses "
+        "boxes, so face count does not enter the physics at all — measured 0.022 ms "
+        "per step against a 2 ms budget. And textured output is small to begin with: "
+        "SAM 3D returns a low-poly mesh plus a 1024x1024 base colour map instead of "
+        "baking detail into geometry, so the same objects that came back at 138k and "
+        "415k faces untextured arrive at 7k and 12k. On room.jpg, 8 of 9 objects fit "
+        "under 20k and the ninth needed 31k; 40k covers the observed spread with room "
+        "to spare, at about 1.2 MB per object.\n\n"
+        "This will need revisiting when a mesh collision tier exists, at which point "
+        "the max_penetration_m argument above binds again.",
+    )
+
     # --- stage 2: local depth ---
     depth_model: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Base-hf"
     depth_device: str | None = Field(
@@ -112,6 +141,12 @@ class Settings(BaseSettings):
     # one object creating a failure in another — and each round costs one
     # re-certification per proposal, roughly 20 ms on a small scene.
     max_repair_rounds: int = 10
+
+    # Beyond this, the support *relation* is more likely wrong than the position,
+    # and moving the object would destroy information rather than correct it. The
+    # motivating case: a wall-mounted picture read as floor-supported, which repair
+    # would otherwise "fix" by snapping it 1.5 m down onto the carpet.
+    max_snap_m: float = 0.5
 
     @property
     def uploads_dir(self) -> Path:

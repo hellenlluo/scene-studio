@@ -134,12 +134,47 @@ class DimensionPrior(BaseModel):
     sigma_m: Vec3 = Field(description="Per-axis stddev. Feeds E_prior as 1/sigma^2.")
 
 
+class Material(StrEnum):
+    """Dominant surface material, which is what density is keyed on.
+
+    Coarse on purpose. A closed vocabulary is something a VLM judges reliably from
+    a photo, whereas a number in kg/m3 is not — so the model picks a bucket and
+    the density comes from a table.
+    """
+
+    WOOD = "wood"
+    METAL = "metal"
+    PLASTIC = "plastic"
+    GLASS = "glass"
+    CERAMIC = "ceramic"
+    FABRIC = "fabric"
+    STONE = "stone"
+    PAPER = "paper"
+    OTHER = "other"
+
+
 class ObjectLabel(BaseModel):
     object_id: str
     category: str
-    prior: DimensionPrior
+    material: Material = Field(
+        default=Material.OTHER,
+        description="Feeds the density prior. Only meaningful against a *mesh* "
+        "volume: material density times a bounding-box volume overestimates open "
+        "shapes by an order of magnitude. See app.pipeline.inertia.",
+    )
+    prior: DimensionPrior | None = Field(
+        default=None,
+        description="Absent until there is a measured priors table to draw on. A VLM "
+        "asked for metres is guessing, and a fabricated prior with an invented sigma "
+        "is worse than none: E_prior weights by 1/sigma^2, so a made-up sigma is a "
+        "made-up weight. While this is None, absolute scale rests entirely on metric "
+        "depth — which is row 1 of the ablation, not a workaround.",
+    )
     support_parent: str | None = Field(
-        default=None, description="object_id of the supporting body, or None for the floor."
+        default=None,
+        description="object_id of the supporting body, or None for the floor. The VLM "
+        "supplies an initial guess; reconcile overrides it with measured contact once "
+        "geometry exists, since by then it is observable rather than inferred.",
     )
 
 
@@ -151,10 +186,12 @@ class LabelResult(BaseModel):
 
 
 class ProxyTier(StrEnum):
-    """Collision-geometry fidelity, and implicitly whether a mesh exists at all.
+    """Collision-geometry fidelity.
 
-    The floor is a whole-object mesh, not a box. OBB is the emergency rung — it
-    means reconstruction produced nothing usable.
+    Describes the *collision* representation specifically, which stays OBB until the
+    inertia stage runs CoACD over the visual mesh. Whether reconstruction succeeded
+    is a separate question, answered by `PartGeometry.visual_mesh_path` being set —
+    an object can have a real mesh and still be colliding as a box.
     """
 
     OBB = "obb"  # no mesh; reconstruction failed
@@ -203,7 +240,13 @@ class InertialProperties(BaseModel):
     """
 
     density_kg_m3: float
-    volume_m3: float
+    volume_m3: float = Field(
+        description="Enclosed volume of the **visual** mesh, not the collision proxy "
+        "and not the bounding box. Measured on a dining table: the mesh encloses "
+        "0.064 m3, its convex hull 0.962 m3, its bounding box 1.013 m3 — so taking "
+        "volume from the proxy gives a 15x mass error on any open shape. The two "
+        "meshes exist for different purposes and this is the one that means mass."
+    )
     mass_kg: float
     com_m: Vec3 = (0.0, 0.0, 0.0)
     inertia_diag: Vec3 = Field(description="Principal moments, part frame.")
@@ -247,6 +290,21 @@ class PartGeometry(BaseModel):
     dims_m: Vec3 = Field(description="Extent at unit object scale; multiply by SceneObject.scale.")
     origin_m: Vec3 = (0.0, 0.0, 0.0)  # part frame origin, object canonical frame
 
+    source_volume_m3: float | None = Field(
+        default=None,
+        description="Enclosed volume measured on the mesh **as reconstructed**, "
+        "before decimation. Mass is computed from this rather than from the stored "
+        "file: decimation is what makes a 22 MB mesh shippable, but it breaks "
+        "watertightness, and trimesh's volume is only meaningful on a closed "
+        "surface. Measured on one object — 1.1M faces to 20k changed the volume by "
+        "0.18%, so the loss is in the guarantee, not the number.",
+    )
+    source_watertight: bool = Field(
+        default=False,
+        description="Whether the mesh was closed *before* decimation, and so whether "
+        "`source_volume_m3` can be trusted. Pessimistic by default.",
+    )
+
     inertial: InertialProperties | None = None  # populated by the inertia stage
 
     visible_surface_fraction: float | None = Field(
@@ -262,6 +320,14 @@ class ObjectAssets(BaseModel):
     object_id: str
     frame: AssetFrame
     parts: list[PartGeometry]
+
+    camera_translation: Vec3 | None = Field(
+        default=None,
+        description="Where the reconstruction model put this object, in the camera "
+        "frame and in its own units. A placement *hypothesis*, not a measurement — "
+        "reconcile has metric depth and should prefer it. Kept because discarding "
+        "the model's opinion of the layout throws away information that is free.",
+    )
 
     failed: bool = False
     failure_reason: str | None = None
@@ -361,9 +427,46 @@ class SceneObject(Pinnable):
         return (w * self.scale, h * self.scale, d * self.scale)
 
 
+class CameraPose(BaseModel):
+    """Where the photo was taken from, in world coordinates.
+
+    Recoverable exactly rather than guessed: the reconstruction is built in camera
+    coordinates, so the camera sits at the origin of the frame reconcile rotates and
+    shifts. Its height above the floor falls out of the floor fit — on one room,
+    1.16 m, which is a plausible standing eye level and a free sanity check on the
+    plane.
+
+    The viewer opens from here so a reconstruction can be compared against the photo
+    it came from without the user hunting for the angle.
+    """
+
+    position_m: Vec3 = (0.0, 0.0, 0.0)
+    forward: Vec3 = Field(default=(0.0, 1.0, 0.0), description="Unit view direction.")
+    up: Vec3 = (0.0, 0.0, 1.0)
+    vertical_fov_deg: float = Field(
+        default=60.0, description="Derived from the intrinsics, so the framing matches."
+    )
+
+
 class SceneGraph(BaseModel):
     objects: list[SceneObject]
+    camera: CameraPose | None = None
     floor_height_m: float = 0.0
+    world_offset_m: Vec3 = Field(
+        default=(0.0, 0.0, 0.0),
+        description="Translation already applied to bring the scene's horizontal "
+        "centre onto the origin.\n\n"
+        "Reconstruction happens in camera coordinates, so the untranslated origin is "
+        "wherever the photographer stood and a scene lands somewhere different for "
+        "every photo. That is correct and unhelpful: a viewer with one fixed camera, "
+        "and a user comparing two reconstructions, both want the scene in the same "
+        "place. Recording the offset rather than discarding it keeps the frames "
+        "relatable — `solve` measures against depth observations that are still in "
+        "camera coordinates, and has to undo this to compare like with like.\n\n"
+        "Horizontal only. Z is the floor, fixed by the plane fit and shared with "
+        "MJCF's ground plane, so shifting it would put objects above a floor that "
+        "does not move.",
+    )
     gravity_rotation: Quat = Field(
         default=(1.0, 0.0, 0.0, 0.0),
         description="Rotation applied in stage 5 to bring the fitted floor plane "

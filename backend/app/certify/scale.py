@@ -48,7 +48,15 @@ def run(
     checks: list[ScaleCheck] = []
     for obj in graph.objects:
         prior = obj.label.prior
-        deviation = _deviation_sigma(obj.dims_m, prior.dims_m, prior.sigma_m)
+        # No prior means there is nothing to deviate from. Reporting zeros would
+        # claim the object matched a prior it never had, which reads as a pass.
+        # Zeros are correct here for a different reason: the deviation *component*
+        # is vacuously satisfied, and the support checks below still apply.
+        deviation = (
+            _deviation_sigma(obj.dims_m, prior.dims_m, prior.sigma_m)
+            if prior is not None
+            else (0.0, 0.0, 0.0)
+        )
 
         low, high = bounds[obj.object_id]
         parent = graph.get(obj.supported_by) if obj.supported_by else None

@@ -19,11 +19,21 @@ matters because the frontend positions gizmos and reads back drags using
 `SceneSpec` numbers, and a second coordinate system would mean converting on every
 interaction.
 
-**No baked materials and no floor.** Objects are coloured client-side by
-certificate status — red for a certified failure, amber for uncertainty, grey for
-stale — so a baked colour would fight the thing the viewer exists to show. The
-floor is omitted because MJCF's is an infinite plane and a finite box would be a
-lie about its extent; the frontend draws its own grid at `floor_height_m`.
+**Reconstructed materials are carried through; the status channel is applied on
+top.** The meshes arrive from SAM 3D with a base colour texture, and that survives
+`trimesh.load(force="mesh")` and the scene export unchanged. The viewer tints those
+materials by certificate status rather than replacing them — red for a certified
+failure, blue for the selection — so the object still looks like the thing in the
+photo while the status stays legible. Baking status into the file instead would put a
+transient, re-computable property into an artifact meant to outlive it.
+
+**Centred horizontally on the origin**, but by `geometry.recentre` acting on the graph
+itself, not by anything here. A root-node offset would centre the picture and leave
+`SceneSpec` alone — fine for looking at, wrong for editing, since a gizmo reads a world
+position off the rendered object and writes it back to `position_m`.
+
+**No floor**, because MJCF's is an infinite plane and a finite box would be a lie
+about its extent; the frontend draws its own grid at `floor_height_m`.
 """
 
 import logging

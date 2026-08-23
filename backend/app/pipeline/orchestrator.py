@@ -60,8 +60,19 @@ def run_pipeline(
     weights = weights or SolveWeights()
     anchors = anchors or []
 
+    # Stage 3 straddles stage 1: SAM 3 is concept-prompted and needs a noun list,
+    # but a label needs an object id and ids only exist once masks do. So the
+    # inventory pass runs first and the labelling pass runs after segmentation.
+    report(StageName.LABEL, "running", None)
+    concepts = labeling.inventory(ctx)
+
     seg = _run_stage(
-        ctx, StageName.SEGMENT, segment.SegmentResult, lambda: segment.run(ctx), (), report
+        ctx,
+        StageName.SEGMENT,
+        segment.SegmentResult,
+        lambda: segment.run(ctx, concepts),
+        (concepts,),
+        report,
     )
     dep = _run_stage(ctx, StageName.DEPTH, depth.DepthResult, lambda: depth.run(ctx), (), report)
     lab = _run_stage(
@@ -81,8 +92,8 @@ def run_pipeline(
         ctx,
         StageName.RECONCILE,
         reconcile.SceneGraph,
-        lambda: reconcile.run(ctx, rig, dep, lab),
-        (rig, dep, lab),
+        lambda: reconcile.run(ctx, rig, seg, dep, lab),
+        (rig, seg, dep, lab),
         report,
     )
     graph = _run_stage(

@@ -241,3 +241,93 @@ def candidate_hosts(
 
     hosts.sort(key=lambda s: s.height_m, reverse=True)
     return hosts
+
+
+def recentre(graph: SceneGraph) -> SceneGraph:
+    """Put the scene on the standard origin: base-centred, floor on the ground plane.
+
+    **The convention, stated once.** A scene's origin is the centre of its horizontal
+    bounding box, at floor level: x and y centred on the objects' extent, z = 0 on the
+    fitted floor. This is the same pivot convention a DCC tool gives you for a placeable
+    asset — Blender's "origin to bounds centre" with the origin dropped to the base —
+    and it is what makes a scene behave like an asset: it drops onto a floor, it rotates
+    about its own middle, and two scenes can be compared without first hunting for them.
+
+    **Centre rather than a corner.** The other candidate is the minimum corner of the
+    bounding box, which gives all-positive coordinates and is what tile and level-block
+    workflows use. Centre wins here on sensitivity: it is `(min + max) / 2`, so it
+    responds to each extreme with weight one half, where a corner responds to one
+    extreme with weight one and ignores the other entirely. When the object set changes
+    — and it does, segmentation is not deterministic run to run — the corner therefore
+    moves twice as far. Measured on room.jpg by dropping each object in turn: mean shift
+    0.111 m for the centre against 0.138 m for the corner, worst case 0.54 m against
+    1.08 m, the worst case being exactly the factor of two.
+
+    A corner is also not the same corner twice. Which object is at minimum x and y
+    depends on the scene's yaw, and yaw comes from the camera — so two photographs of
+    one room from different positions put the origin at different physical corners,
+    which is precisely the comparison this convention exists to make possible.
+
+    Rotation does not distinguish them, and it is worth saying so because it sounds
+    like it should. Whatever the reference point, this function puts it on the origin,
+    so a rotation followed by recentring cancels the pivot entirely — both conventions
+    end up at the origin by construction.
+
+    **Why a convention is needed at all**, when importers normally preserve authored
+    coordinates and never recentre. Because there are no authored coordinates here.
+    Reconstruction happens in camera coordinates: depth backprojection puts the origin
+    at the camera's optical centre, so a scene sits wherever the photographer happened
+    to stand — measured at 2.4 m along +Y on room.jpg, and a different offset for every
+    photo. That is not an origin anyone chose; it is an artefact of how the scene was
+    measured. Preserving it would be preserving noise.
+
+    Applied to the graph rather than to the exported glTF's root node, which is where
+    this lived first. The root-node version centred the picture and left the numbers
+    alone, which is fine for looking and wrong for editing: a transform gizmo reads a
+    world position off the rendered object and writes it back to `position_m`, so a
+    hidden offset between the two would move an object by the offset on every drag.
+
+    Horizontal only, and the floor is left where the plane fit put it — z is shared
+    with MJCF's ground plane and the viewer's grid, so shifting it would put objects
+    above a floor that does not move.
+
+    The camera pose travels with the scene so it still points at what it pointed at, and
+    the offset accumulates onto `world_offset_m` — accumulated, not assigned, so calling
+    this twice is a no-op rather than a second shift. `solve` reads it to get back to
+    the camera coordinates its depth observations still live in.
+
+    Objects keep their positions relative to each other; this is a change of frame, not
+    a change of scene.
+
+    Note what this deliberately does *not* try to fix: a scene centred this way can
+    still sit off-centre on screen, because a 3/4 view projects along a diagonal and an
+    L-shaped room is not centred on it. That is a framing problem and it belongs to the
+    camera, which is where every editor puts it. See `frontend/src/scene/aim.ts`.
+    """
+    if not graph.objects:
+        return graph
+
+    corners = np.vstack([np.vstack(world_aabb(obj)) for obj in graph.objects])
+    centre = (corners.min(axis=0) + corners.max(axis=0)) / 2.0
+    shift = np.array([-centre[0], -centre[1], 0.0])
+    if np.allclose(shift, 0.0):
+        return graph
+
+    objects = [
+        obj.model_copy(
+            update={"position_m": tuple(float(v) for v in np.asarray(obj.position_m) + shift)}
+        )
+        for obj in graph.objects
+    ]
+    camera = graph.camera
+    if camera is not None:
+        camera = camera.model_copy(
+            update={"position_m": tuple(float(v) for v in np.asarray(camera.position_m) + shift)}
+        )
+    return graph.model_copy(
+        update={
+            "objects": objects,
+            "camera": camera,
+            "world_offset_m": tuple(float(v) for v in np.asarray(graph.world_offset_m) + shift),
+        }
+    )

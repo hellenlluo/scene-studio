@@ -199,3 +199,37 @@ def test_exhausting_the_budget_is_reported_as_not_converged(ctx):
     assert result.rounds_used == 1
     # One round accepted something, so the loop wanted another and was denied.
     assert not result.converged
+
+
+# --- the snap limit -----------------------------------------------------------
+
+
+def test_a_correction_too_large_to_be_minimal_is_refused(ctx):
+    """The motivating case is a wall-mounted picture misread as floor-supported.
+    Snapping it would drop the painting onto the carpet — an actively harmful
+    "repair" that also destroys the evidence of what went wrong. At that magnitude
+    the support *relation* is the likelier error, not the position."""
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    x, y, z = mug.position_m
+    mug.position_m = (x, y, z + 1.5)  # as if it were hanging on a wall
+
+    result = _repair(ctx, graph)
+    assert all(a.kind is not RepairKind.SNAP_TO_SUPPORT for a in result.actions)
+    # And it is left where it was, rather than moved somewhere wrong.
+    assert result.graph.get("mug").position_m[2] == pytest.approx(z + 1.5)
+
+
+def test_a_correction_inside_the_limit_still_happens(ctx):
+    """The cap must not disable ordinary repairs — the floating-mug fixture is
+    0.25 m, comfortably inside the 0.5 m default."""
+    result = _repair(ctx, scenes.mug_floating_above_table())
+    assert result.certificate.passed
+    assert [a.kind for a in _kept(result)] == [RepairKind.SNAP_TO_SUPPORT]
+
+
+def test_the_limit_is_configurable(ctx):
+    graph = scenes.mug_floating_above_table()  # needs a 0.25 m snap
+    tight = ctx.settings.model_copy(update={"max_snap_m": 0.1})
+    ctx.settings = tight
+    assert not _repair(ctx, graph).certificate.passed

@@ -9,7 +9,14 @@ import math
 import numpy as np
 import pytest
 
-from app.geometry import candidate_hosts, footprint_xy, support_surfaces, world_aabb
+from app.geometry import (
+    candidate_hosts,
+    footprint_xy,
+    recentre,
+    support_surfaces,
+    world_aabb,
+)
+from app.schemas import CameraPose, SceneGraph
 from tests.fixtures import scenes
 
 
@@ -176,3 +183,68 @@ def test_the_polygon_is_a_closed_ring_in_world_space():
     # Ring order, not bit order: consecutive corners share an edge, so no diagonal.
     edges = np.linalg.norm(np.diff(np.vstack([points, points[:1]]), axis=0), axis=1)
     assert max(edges) == pytest.approx(1.2)
+
+
+# --- recentring ---------------------------------------------------------------
+
+
+def test_recentre_puts_the_horizontal_centre_on_the_origin():
+    """One fixed viewer camera has to frame every scene, but reconstruction happens in
+    camera coordinates — so where a room lands depends on where the photographer
+    stood."""
+    graph = recentre(scenes.kitchen())
+    corners = np.vstack([np.vstack(world_aabb(obj)) for obj in graph.objects])
+    centre = (corners.min(axis=0) + corners.max(axis=0)) / 2.0
+    assert centre[:2] == pytest.approx([0.0, 0.0], abs=1e-9)
+
+
+def test_recentre_leaves_the_floor_alone():
+    """Z is fixed by the plane fit and shared with MJCF's ground plane and the viewer's
+    grid, so shifting it would put objects above a floor that does not move."""
+    before = scenes.kitchen()
+    after = recentre(before)
+    for a, b in zip(before.objects, after.objects, strict=True):
+        assert a.position_m[2] == pytest.approx(b.position_m[2])
+
+
+def test_recentre_preserves_relative_placement():
+    """A change of frame, not a change of scene."""
+    before = scenes.kitchen()
+    after = recentre(before)
+    shifts = {
+        a.object_id: np.asarray(b.position_m) - np.asarray(a.position_m)
+        for a, b in zip(before.objects, after.objects, strict=True)
+    }
+    for shift in shifts.values():
+        assert shift == pytest.approx(next(iter(shifts.values())))
+
+
+def test_recentre_records_the_offset_it_applied():
+    """`solve` measures against depth observations that are still in camera
+    coordinates, so it has to be able to undo this."""
+    before = scenes.kitchen()
+    after = recentre(before)
+    moved = np.asarray(after.objects[0].position_m) - np.asarray(before.objects[0].position_m)
+    assert np.asarray(after.world_offset_m) == pytest.approx(moved)
+
+
+def test_recentre_is_idempotent():
+    """It accumulates onto world_offset_m rather than assigning, so a second call is a
+    no-op and not a second shift."""
+    once = recentre(scenes.kitchen())
+    twice = recentre(once)
+    assert twice.world_offset_m == pytest.approx(once.world_offset_m)
+    for a, b in zip(once.objects, twice.objects, strict=True):
+        assert a.position_m == pytest.approx(b.position_m)
+
+
+def test_recentre_carries_the_camera_with_the_scene():
+    """The recovered pose has to keep pointing at what it pointed at."""
+    before = scenes.kitchen().model_copy(update={"camera": CameraPose(position_m=(0.0, 0.0, 1.2))})
+    after = recentre(before)
+    moved = np.asarray(after.camera.position_m) - np.asarray(before.camera.position_m)
+    assert moved == pytest.approx(after.world_offset_m)
+
+
+def test_recentre_tolerates_an_empty_scene():
+    assert recentre(SceneGraph(objects=[])).objects == []

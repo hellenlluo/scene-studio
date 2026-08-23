@@ -5,7 +5,9 @@ requires-python = ">=3.12"
 dependencies = [
     "coacd>=1.0.12",
     "fal-client>=1.0.1",
+    "fast-simplification>=0.2.0",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "manifold3d>=3.5.2",
     "mujoco>=3.11.0",
     "networkx>=3.6.1",

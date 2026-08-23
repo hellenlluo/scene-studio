@@ -38,6 +38,8 @@ total violation went down. Otherwise it is reverted — but recorded with
 tried and did not work is exactly what you need when a scene will not certify.
 """
 
+import logging
+
 import numpy as np
 
 from app.config import Settings
@@ -55,6 +57,8 @@ from app.schemas import (
 from . import certify
 
 __all__ = ["RepairResult", "run"]
+
+log = logging.getLogger(__name__)
 
 # A repair has to buy more than floating-point noise to be worth keeping.
 MIN_IMPROVEMENT = 1e-6
@@ -113,10 +117,27 @@ def _snap_to_support(graph: SceneGraph, cert: Certificate, settings: Settings):
 
     The cheapest repair and the most common one: one translation along z, no
     change to scale or to any other object.
+
+    Bounded by `max_snap_m`. A correction large enough to move an object across the
+    room is not a minimal correction, and at that magnitude the support *relation*
+    is the likelier error — so it is reported rather than acted on.
     """
     for check in cert.scale:
         gap = check.support_gap_m
         if abs(gap) <= settings.max_support_gap_m:
+            continue
+        if abs(gap) > settings.max_snap_m:
+            # Not a placement error at this magnitude — the support relation itself
+            # is wrong, and translating the object would bury the evidence. A
+            # wall-mounted picture misread as floor-supported is the motivating
+            # case: snapping it would drop the painting onto the carpet.
+            log.info(
+                "%s is %.2f m from its support, beyond the %.2f m snap limit; "
+                "the support relation is the likelier error",
+                check.object_id,
+                gap,
+                settings.max_snap_m,
+            )
             continue
         yield RepairAction(
             kind=RepairKind.SNAP_TO_SUPPORT,
@@ -205,7 +226,10 @@ def _rescale_toward_prior(graph: SceneGraph, cert: Certificate, settings: Settin
         if worst <= settings.max_prior_deviation_sigma:
             continue
         obj = graph.get(check.object_id)
-        if obj is None:
+        if obj is None or obj.label.prior is None:
+            # Nothing to pull toward. An object with no prior cannot have exceeded
+            # one, so this should be unreachable — but rescaling toward a missing
+            # target would be the worst possible way to find that out.
             continue
 
         current = np.asarray(obj.dims_m, dtype=float)

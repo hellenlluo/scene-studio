@@ -6,10 +6,14 @@ rotation, and a mishandled scale still produces a mesh. Nothing raises; objects
 just come out wrong.
 """
 
+import io
+
 import numpy as np
 import pytest
+import trimesh
+from PIL import Image
 
-from app.pipeline.rigid import _quat_wxyz, _split_scale
+from app.pipeline.rigid import _load_glb, _quat_wxyz, _split_scale
 
 # --- quaternion order ---------------------------------------------------------
 
@@ -114,3 +118,74 @@ def test_parses_a_real_captured_response():
     assert np.linalg.norm([w, x, y, z]) == pytest.approx(1.0, abs=1e-4)
 
     assert _unwrap(info["translation"])[2] == pytest.approx(2.741, abs=1e-3)
+
+
+# --- watertightness, measured on a welded copy ---------------------------------
+
+
+def _textured_glb(mesh: trimesh.Trimesh) -> bytes:
+    """A GLB carrying a UV-mapped material, the way SAM 3D returns one.
+
+    The seams are the subject, so they have to be real: a `TextureVisuals` with a
+    per-vertex UV array is what makes glTF write one vertex per UV corner, and what
+    makes the mesh come back unwelded.
+    """
+    mesh = mesh.copy()
+    mesh.visual = trimesh.visual.TextureVisuals(
+        uv=np.random.default_rng(0).random((len(mesh.vertices), 2)),
+        image=Image.new("RGB", (4, 4), (128, 128, 128)),
+    )
+    return trimesh.Scene(mesh).export(file_type="glb")
+
+
+def test_a_textured_closed_mesh_is_measured_as_closed():
+    """The bug this guards: a glTF stores a vertex per UV corner, so a closed
+    surface loads split at every seam and reads as not watertight. Every object in
+    every real scene came back `None`, and the volume mass depends on was never
+    measured."""
+    box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
+    _, volume, watertight = _load_glb(_textured_glb(box), max_faces=100_000)
+
+    assert watertight
+    assert volume == pytest.approx(0.4 * 0.2 * 0.1, rel=1e-6)
+
+
+def test_the_stored_mesh_keeps_its_seams():
+    """Measure on a copy, ship the original. Welding has to pick one UV per merged
+    vertex, so doing it in place stretches the texture along every seam — and
+    keeping textures is why `max_mesh_faces` is 40k rather than 5k."""
+    box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
+    data = _textured_glb(box)
+
+    as_loaded = trimesh.load(io.BytesIO(data), file_type="glb", force="mesh")
+    mesh, _, _ = _load_glb(data, max_faces=100_000)
+
+    assert len(mesh.vertices) == len(as_loaded.vertices)
+    assert isinstance(mesh.visual, trimesh.visual.TextureVisuals)
+    assert mesh.visual.material.baseColorTexture is not None
+
+
+def test_welding_does_not_move_the_volume():
+    """Only the verdict changes. trimesh integrates per triangle, so vertex sharing
+    never enters the number — which is why this fix is safe to apply to scenes
+    already measured the old way."""
+    data = _textured_glb(trimesh.creation.icosphere(subdivisions=2, radius=0.1))
+    _, volume, _ = _load_glb(data, max_faces=100_000)
+
+    # Against the mesh as loaded, not the one authored above: glTF stores vertices
+    # as float32, so a round trip moves the volume by ~2e-8 relative and would
+    # swamp the thing being measured.
+    as_loaded = trimesh.load(io.BytesIO(data), file_type="glb", force="mesh")
+    assert volume == pytest.approx(float(as_loaded.volume), rel=1e-12)
+
+
+def test_a_genuinely_open_mesh_still_reads_as_open():
+    """Welding is not repair. A shell with a hole in it has no trustworthy volume
+    and has to say so, or the inertial axis certifies on a number nobody measured."""
+    box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
+    box.update_faces(np.arange(len(box.faces)) > 1)  # drop a face; leave a hole
+
+    _, volume, watertight = _load_glb(_textured_glb(box), max_faces=100_000)
+
+    assert not watertight
+    assert volume is None

@@ -19,6 +19,7 @@ from app.schemas import PartGeometry, SceneGraph, SceneObject, SupportSurface
 __all__ = [
     "candidate_hosts",
     "footprint_xy",
+    "matrix_to_quat",
     "part_corners",
     "quat_to_matrix",
     "support_surfaces",
@@ -39,6 +40,39 @@ def quat_to_matrix(q: tuple[float, float, float, float]) -> np.ndarray:
             [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
         ]
     )
+
+
+def matrix_to_quat(m: np.ndarray) -> tuple[float, float, float, float]:
+    """Rotation matrix to a w, x, y, z quaternion. Inverse of `quat_to_matrix`.
+
+    Shepperd's method: pick the branch whose divisor is largest rather than always
+    dividing by `w`. The naive form loses precision as `w -> 0` and divides by zero
+    at exactly 180 degrees, which is not a corner case here — a principal-axis
+    frame is whatever the eigenvectors say it is, and half-turns are common.
+
+    The sign is chosen so `w >= 0`. A quaternion and its negation are the same
+    rotation, so this is only a convention, but it is the one MuJoCo prints and it
+    keeps a test that compares against a literal from failing on a valid answer.
+    """
+    m = np.asarray(m, dtype=float)
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        q = (0.25 * s, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s)
+    else:
+        axis = int(np.argmax(np.diag(m)))
+        i, j, k = axis, (axis + 1) % 3, (axis + 2) % 3
+        s = math.sqrt(1.0 + m[i, i] - m[j, j] - m[k, k]) * 2.0
+        components = [0.0, 0.0, 0.0]
+        components[i] = 0.25 * s
+        components[j] = (m[j, i] + m[i, j]) / s
+        components[k] = (m[k, i] + m[i, k]) / s
+        q = ((m[k, j] - m[j, k]) / s, *components)
+
+    if q[0] < 0.0:
+        q = tuple(-v for v in q)
+    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
 
 
 def part_corners(obj: SceneObject, part: PartGeometry) -> np.ndarray:

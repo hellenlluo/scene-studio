@@ -12,6 +12,8 @@ import pytest
 from app.geometry import (
     candidate_hosts,
     footprint_xy,
+    matrix_to_quat,
+    quat_to_matrix,
     recentre,
     support_surfaces,
     world_aabb,
@@ -248,3 +250,45 @@ def test_recentre_carries_the_camera_with_the_scene():
 
 def test_recentre_tolerates_an_empty_scene():
     assert recentre(SceneGraph(objects=[])).objects == []
+
+
+# --- quaternions --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "angle",
+    [0.0, 0.3, math.pi / 2, math.pi - 1e-9, math.pi, 2.5],
+)
+@pytest.mark.parametrize("axis", [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, -2, 3]])
+def test_matrix_to_quat_inverts_quat_to_matrix(angle, axis):
+    """Round-trip through the matrix, not through the quaternion.
+
+    Comparing quaternions directly would fail on a valid answer: q and -q are the
+    same rotation. The matrix is unique, so that is what the assertion is on.
+
+    The half-turn cases are the point of the parametrisation. `w` goes to zero
+    there, and the naive `q = (w, ...)` form divides by it — which is why this uses
+    the branch with the largest divisor instead.
+    """
+    unit = np.asarray(axis, dtype=float) / np.linalg.norm(axis)
+    expected = quat_to_matrix(
+        (
+            math.cos(angle / 2),
+            *(math.sin(angle / 2) * unit),
+        )
+    )
+    assert quat_to_matrix(matrix_to_quat(expected)) == pytest.approx(expected, abs=1e-12)
+
+
+def test_matrix_to_quat_is_unit_length():
+    """MuJoCo normalises whatever it is given, so a drifting quaternion is a silent
+    rescale of nothing — but an inertia frame that is not a rotation is not one."""
+    rotation = quat_to_matrix((0.5, 0.5, -0.5, 0.5))
+    assert np.linalg.norm(matrix_to_quat(rotation)) == pytest.approx(1.0)
+
+
+def test_matrix_to_quat_takes_the_positive_hemisphere():
+    """A convention, not a correctness property: q and -q are the same rotation."""
+    for angle in (0.3, 2.0, math.pi):
+        rotation = quat_to_matrix((math.cos(angle / 2), 0.0, 0.0, math.sin(angle / 2)))
+        assert matrix_to_quat(rotation)[0] >= 0.0

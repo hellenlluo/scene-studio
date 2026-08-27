@@ -82,6 +82,29 @@ class Settings(BaseSettings):
         "the max_penetration_m argument above binds again.",
     )
 
+    # --- stage 9: inertia and collision proxies ---
+    coacd_threshold: float = Field(
+        default=0.05,
+        description="CoACD concavity threshold: the residual concavity it stops "
+        "refining at. Lower means more, tighter pieces and a slower `mean_step_time_ms` "
+        "on the cost axis, which is the trade this number exists to expose. 0.05 is "
+        "CoACD's own default and the reference point for the proxy-tier table.",
+    )
+    max_convex_pieces: int = Field(
+        default=24,
+        description="Cap on hulls per part. Uncapped, a decomposition of a "
+        "reconstructed sofa runs to hundreds of pieces and the cost axis fails for "
+        "a reason that has nothing to do with the object.",
+    )
+    max_collision_faces: int = Field(
+        default=10_000,
+        description="Decimation target for the mesh handed to CoACD, separate from "
+        "`max_mesh_faces` because the two are spent on different things. The visual "
+        "cap is high to keep UVs; collision geometry has no UVs and CoACD's runtime "
+        "grows with the input, so this one stays low. The output pieces are convex "
+        "hulls either way, and a hull does not remember the faces it came from.",
+    )
+
     # --- stage 2: local depth ---
     depth_model: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Base-hf"
     depth_device: str | None = Field(

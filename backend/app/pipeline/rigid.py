@@ -130,13 +130,33 @@ def _load_glb(data: bytes, max_faces: int) -> tuple[trimesh.Trimesh, float | Non
     So mass is computed from the mesh as reconstructed, and the file that ships is
     the small one. The volume difference between them was 0.18%; what decimation
     actually costs is the *guarantee*, not the number.
+
+    **Measure on a welded copy, store the original.** A textured glTF holds a
+    separate vertex per UV corner, so the mesh arrives split at every seam —
+    measured on `room.jpg`, a floor lamp loads as 211 disconnected components with
+    4780 boundary edges and zero non-manifold ones, which is an unwelded closed
+    surface rather than a broken one. Ask *that* whether it is watertight and the
+    answer is no for every object in every scene, so `volume` is None for every
+    object in every scene and the measurement this function exists to take is never
+    taken.
+
+    The copy is not fastidiousness. `merge_vertices(merge_tex=True)` is what welds
+    across the seams, and it has to pick one UV per merged vertex: on one side table
+    it collapsed 11401 vertices to 9730, so 1671 of them lose a distinct UV and the
+    texture stretches along every seam. Keeping textures is why `max_mesh_faces` is
+    40k rather than 5k, so the shipped mesh stays exactly as it arrived. Welding
+    changes no volume anyway — trimesh integrates per triangle, and across all nine
+    objects the welded and unwelded volumes agree to every digit. Only the
+    watertight *verdict* changes, and that is the whole point.
     """
     loaded = trimesh.load(io.BytesIO(data), file_type="glb", force="mesh")
     if not isinstance(loaded, trimesh.Trimesh) or not len(loaded.vertices):
         return None
 
-    watertight = bool(loaded.is_watertight)
-    volume = float(loaded.volume) if watertight else None
+    welded = loaded.copy()
+    welded.merge_vertices(merge_tex=True, merge_norm=True)
+    watertight = bool(welded.is_watertight)
+    volume = float(welded.volume) if watertight else None
 
     if len(loaded.faces) <= max_faces:
         return loaded, volume, watertight

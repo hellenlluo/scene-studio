@@ -54,7 +54,7 @@ def _add_geoms(
     parent: ET.Element,
     obj: SceneObject,
     part: PartGeometry,
-    assets: dict[str, str],
+    assets: dict[str, tuple[str, float]],
     offset: Vec3 = (0.0, 0.0, 0.0),
 ) -> None:
     """Collision geometry for one part.
@@ -83,7 +83,11 @@ def _add_geoms(
 
     for index, mesh_path in enumerate(part.collision_mesh_paths):
         asset_name = f"{body_name(obj.object_id, part.part_id)}/{index}"
-        assets[asset_name] = mesh_path
+        # The scale rides on the asset, not the geom: MuJoCo has no per-geom mesh
+        # scale, and the file is stored at unit object scale so that changing
+        # `SceneObject.scale` never means rewriting geometry. Asset names carry the
+        # object id, so no two objects can share an entry and disagree about it.
+        assets[asset_name] = (mesh_path, obj.scale)
         ET.SubElement(
             parent,
             "geom",
@@ -124,7 +128,7 @@ def _add_part(
     obj: SceneObject,
     part: PartGeometry,
     children: dict[str | None, list[PartGeometry]],
-    assets: dict[str, str],
+    assets: dict[str, tuple[str, float]],
     origin: Vec3,
 ) -> None:
     """Recursively emit a part and everything hanging off it."""
@@ -144,7 +148,9 @@ def _add_part(
         _add_part(body, obj, child, children, assets, part.origin_m)
 
 
-def _add_object(worldbody: ET.Element, obj: SceneObject, assets: dict[str, str]) -> None:
+def _add_object(
+    worldbody: ET.Element, obj: SceneObject, assets: dict[str, tuple[str, float]]
+) -> None:
     root = obj.root_part
     body = ET.SubElement(
         worldbody,
@@ -182,7 +188,7 @@ def build_xml(graph: SceneGraph) -> str:
     # Measured: with the default, a 20 cm interpenetration reports ncon=0.
     ET.SubElement(option, "flag", {"filterparent": "disable"})
 
-    assets: dict[str, str] = {}
+    assets: dict[str, tuple[str, float]] = {}
     worldbody = ET.SubElement(root, "worldbody")
     ET.SubElement(
         worldbody,
@@ -200,8 +206,10 @@ def build_xml(graph: SceneGraph) -> str:
 
     if assets:
         asset_el = ET.Element("asset")
-        for name, path in sorted(assets.items()):
-            ET.SubElement(asset_el, "mesh", {"name": name, "file": path})
+        for name, (path, scale) in sorted(assets.items()):
+            ET.SubElement(
+                asset_el, "mesh", {"name": name, "file": path, "scale": _fmt((scale,) * 3)}
+            )
         root.insert(2, asset_el)
 
     ET.indent(root, space="  ")

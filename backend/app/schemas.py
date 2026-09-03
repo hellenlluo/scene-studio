@@ -30,6 +30,11 @@ class StageName(StrEnum):
     LABEL = "label"
     RECONSTRUCT = "reconstruct"
     RECONCILE = "reconcile"
+    # Runs after RECONCILE, before INERTIA: objects are posed in world space by
+    # then, which a render needs, but nothing has been solved or certified yet, so
+    # a hallucinated or duplicated object is dropped before any of that work is
+    # spent on it.
+    VERIFY = "verify"
     # Runs before SOLVE, not after CERTIFY: the solver's physics block steps
     # MuJoCo, and MuJoCo cannot settle a body with no mass. This stage assigns
     # the density priors; mass and the inertia tensor are derived from
@@ -500,6 +505,37 @@ class SupportSurface(BaseModel):
     )
 
 
+# --- stage 5.5: verify ---------------------------------------------------------
+
+
+class ObjectVerdict(StrEnum):
+    """What the reconstruction-verification pass decided about one object,
+    comparing a render of the posed scene against the original photo."""
+
+    OK = "ok"
+    DUPLICATE = "duplicate"
+    EXTERNAL = "external"
+
+
+class ObjectVerification(BaseModel):
+    """One object's verdict, kept whether or not it survives — a removal with no
+    visible reason is not something anyone could check later."""
+
+    object_id: str
+    verdict: ObjectVerdict
+    duplicate_of: str | None = Field(
+        default=None, description="The object_id it duplicates, when verdict is DUPLICATE."
+    )
+    reason: str = Field(default="", description="What the model saw, for debugging.")
+
+
+class VerifyResult(BaseModel):
+    graph: SceneGraph
+    removed: list[ObjectVerification] = Field(
+        default_factory=list, description="Only the non-OK verdicts; OK is not worth persisting."
+    )
+
+
 # --- stage 6: solve -----------------------------------------------------------
 
 
@@ -509,7 +545,23 @@ class SolveWeights(BaseModel):
     depth: float = 1.0
     prior: float = 1.0
     silhouette: float = 0.5
-    support: float = 2.0
+    support: float = Field(
+        default=8.0,
+        description="Weight on the signed support gap.\n\n"
+        "Has to outweigh depth on the vertical axis, and by more than it looks: "
+        "depth contributes six residuals per object — three for the centre, three "
+        "for the extent — against one for support, so parity of *weights* is a "
+        "six-to-one loss for contact. At 2.0 a reconstructed side table settled "
+        "17.8 mm clear of the rug it rests on, against a 5 mm tolerance, because the "
+        "depth measurement wanted it higher and outvoted the contact.\n\n"
+        "Raised to 8.0 on the measurement: table gap 17.8 mm -> 5.1 mm, and the "
+        "depth term's own cost rose only 0.374 -> 0.406, about 10%. Contact is "
+        "bought cheaply because the two measurements disagree along one axis only. "
+        "30.0 buys a further 5.1 -> 3.1 mm for no extra depth cost and 100.0 buys "
+        "nothing more, so this sits at the knee rather than at the floor — a contact "
+        "constraint that overrode depth entirely would be discarding the "
+        "measurement the whole pipeline exists to make.",
+    )
     penetration: float = 5.0
 
 
@@ -800,6 +852,12 @@ class SceneSpec(BaseModel):
     weights: SolveWeights = Field(default_factory=SolveWeights)
     diagnostics: SolveDiagnostics = Field(default_factory=SolveDiagnostics)
     repairs_applied: list[RepairAction] = Field(default_factory=list)
+    removed_objects: list[ObjectVerification] = Field(
+        default_factory=list,
+        description="Objects the verification stage dropped as external or duplicated, "
+        "with the reasoning — the auditable record of what reconstruction produced "
+        "that this scene does not.",
+    )
 
     exports: ExportResult = Field(default_factory=ExportResult)
     uncertainty: list[ObjectUncertainty] = Field(default_factory=list)

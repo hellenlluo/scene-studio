@@ -31,11 +31,11 @@ cost is that a reconstructed scene is missing its pictures, and anything resting
 a wall shelf loses its support.
 """
 
-import base64
 import logging
 
 from pydantic import BaseModel, Field
 
+from app.pipeline import vlm
 from app.pipeline.base import PipelineContext
 from app.schemas import LabelResult, Material, ObjectLabel, SegmentResult
 
@@ -107,6 +107,11 @@ One per line, lowercase, singular. Include furniture, appliances, and smaller \
 objects resting on surfaces. Name each distinct instance separately even when two \
 are the same kind of thing.
 
+If two things are physically joined into one continuous piece — a plant growing \
+out of its pot, water in a glass — name them together as the one object \
+("potted plant", not "plant" and "pot" separately). Otherwise, name each distinct \
+instance on its own, including smaller objects resting on furniture.
+
 Exclude walls, floor, ceiling, windows, doorways, shadows and reflections.
 
 Also exclude anything mounted on a wall or hanging from the ceiling — pictures, \
@@ -151,35 +156,6 @@ class _Labels(BaseModel):
     objects: list[_LabelledObject]
 
 
-def _client(ctx: PipelineContext, stage: str):
-    from openai import OpenAI
-
-    return OpenAI(api_key=ctx.settings.require("openai_api_key", stage))
-
-
-def _image_part(data: bytes, media_type: str = "image/png") -> dict:
-    encoded = base64.b64encode(data).decode()
-    return {"type": "input_image", "image_url": f"data:{media_type};base64,{encoded}"}
-
-
-def _parse(ctx: PipelineContext, stage: str, image: bytes, prompt: str, schema: type[BaseModel]):
-    client = _client(ctx, stage)
-    response = client.responses.parse(
-        model=ctx.settings.openai_model,
-        input=[
-            {
-                "role": "user",
-                "content": [_image_part(image), {"type": "input_text", "text": prompt}],
-            }
-        ],
-        text_format=schema,
-    )
-    parsed = response.output_parsed
-    if parsed is None:
-        raise RuntimeError(f"{stage}: model returned no parsable output")
-    return parsed
-
-
 def inventory(ctx: PipelineContext) -> list[str]:
     """Pass one: noun phrases for the segmenter.
 
@@ -188,7 +164,9 @@ def inventory(ctx: PipelineContext) -> list[str]:
     in the second pass where it keys a density lookup — not in the first, where it
     would silently make anything unlisted invisible to the whole pipeline.
     """
-    nouns = _parse(ctx, "label", ctx.image_path.read_bytes(), INVENTORY_PROMPT, _Inventory).objects
+    nouns = vlm.parse(
+        ctx, "label", [ctx.image_path.read_bytes()], INVENTORY_PROMPT, _Inventory
+    ).objects
     # Duplicates are wasted segmentation prompts; SAM 3 finds every instance of a
     # concept from one mention.
     unique = list(dict.fromkeys(n.strip().lower() for n in nouns if n.strip()))
@@ -208,7 +186,7 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> LabelResult:
         categories=", ".join(CATEGORIES),
         materials=", ".join(m.value for m in Material),
     )
-    parsed = _parse(ctx, "label", annotated, prompt, _Labels)
+    parsed = vlm.parse(ctx, "label", [annotated], prompt, _Labels)
 
     # The model works in 1-based indices drawn on the image; everything downstream
     # works in object ids.

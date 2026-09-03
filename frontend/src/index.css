@@ -286,9 +286,8 @@ main {
   color: var(--fail);
 }
 
-/* Stacked, not two columns. At 12.5vw the id and the category collided into
-   "obj_139_679side_table"; a sidebar this narrow has to spend vertical space instead
-   of squeezing horizontally. */
+/* One line per object now that the row shows only its name; the column layout is
+   kept because the open state stacks the id and the reasons underneath. */
 .object {
   display: flex;
   flex-direction: column;
@@ -309,11 +308,6 @@ main {
 .object--selected {
   color: var(--accent);
 }
-.object-category {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
 .reasons {
   padding: 0.35rem 0 0.6rem 0.6rem;
   overflow-wrap: anywhere;
@@ -355,4 +349,13 @@ main {
 .repair:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* The mesh filename, shown only on an open row. Monospace because it is an
+   identifier you might copy into a path, not prose. */
+.object-id {
+  padding: 0.1rem 0 0 0.6rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
 }

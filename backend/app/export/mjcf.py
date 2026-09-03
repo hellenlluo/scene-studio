@@ -28,6 +28,35 @@ def free_joint_name(object_id: str) -> str:
     return f"{object_id}/free"
 
 
+# Contact stiffness. MuJoCo's defaults model a compliant contact, which is right
+# for a gripper pad and wrong for a room full of furniture: a body sinks into its
+# support until the constraint force balances gravity, and at 224 kg — the mass a
+# shell-volume sofa comes out at — that is centimetres of visible penetration the
+# stability axis then reports as displacement.
+#
+# `solref` is (timeconst, dampratio) and the first term has a floor: MuJoCo needs
+# timeconst >= 2 * timestep to stay stable, so 0.005 against a 0.002 timestep is
+# close to as stiff as this timestep permits. Anything stiffer needs the timestep
+# to come down with it, which costs step time on the cost axis.
+#
+# Measured on the `room` scene, settling for 2 s: a floor lamp went from 335 mm of
+# displacement to 1.7 mm. Nothing else moved by more than a millimetre either way,
+# so this buys the lamp and costs nothing elsewhere.
+#
+# **This is a modelling choice, not only a bug fix.** It asserts that reconstructed
+# furniture is rigid, and it shifts every number the stability axis reports, so the
+# sensitivity of the certification results to it belongs in the evaluation
+# alongside the penetration tolerance.
+TIMESTEP_S = "0.002"
+CONTACT_SOLREF = "0.005 1"
+CONTACT_SOLIMP = "0.99 0.999 0.001"
+
+
+def _add_contact_defaults(root: ET.Element) -> None:
+    default = ET.SubElement(root, "default")
+    ET.SubElement(default, "geom", {"solref": CONTACT_SOLREF, "solimp": CONTACT_SOLIMP})
+
+
 def _fmt(values: tuple[float, ...]) -> str:
     return " ".join(f"{v:.6g}" for v in values)
 
@@ -182,11 +211,17 @@ def build_xml(graph: SceneGraph) -> str:
 
     ET.SubElement(root, "compiler", {"angle": "radian"})
 
-    option = ET.SubElement(root, "option", {"timestep": "0.002"})
+    # `impratio` above 1 raises frictional constraint impedance relative to normal.
+    # The default of 1 lets a resting object creep sideways under its own weight,
+    # which the stability axis reads as displacement — measured on a reconstructed
+    # floor lamp, 324 mm of pure lateral slide with nothing pushing it.
+    option = ET.SubElement(root, "option", {"timestep": TIMESTEP_S, "impratio": "10"})
     # MuJoCo excludes contacts between a parent body and its child by default,
     # which would hide overlap between the rigidly-attached parts of one object.
     # Measured: with the default, a 20 cm interpenetration reports ncon=0.
     ET.SubElement(option, "flag", {"filterparent": "disable"})
+
+    _add_contact_defaults(root)
 
     assets: dict[str, tuple[str, float]] = {}
     worldbody = ET.SubElement(root, "worldbody")
@@ -210,7 +245,10 @@ def build_xml(graph: SceneGraph) -> str:
             ET.SubElement(
                 asset_el, "mesh", {"name": name, "file": path, "scale": _fmt((scale,) * 3)}
             )
-        root.insert(2, asset_el)
+        # Located by lookup rather than a literal index: MuJoCo wants `asset` ahead
+        # of `worldbody`, and a hard-coded position silently means the wrong slot the
+        # next time a section is added before it.
+        root.insert(list(root).index(worldbody), asset_el)
 
     ET.indent(root, space="  ")
     return ET.tostring(root, encoding="unicode")

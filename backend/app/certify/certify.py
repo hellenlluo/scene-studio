@@ -15,6 +15,7 @@ reports NOT_RUN from here means a validator raised or was skipped, not that the
 check does not exist.
 """
 
+from app.pipeline import support
 from app.pipeline.base import PipelineContext
 from app.schemas import AxisStatus, Certificate, SceneGraph
 
@@ -39,7 +40,15 @@ def _status(checks: list) -> AxisStatus:
 def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
     settings = ctx.settings
 
-    scale_checks = scale.run(graph, settings.max_prior_deviation_sigma, settings.max_support_gap_m)
+    # The same measured surfaces stage 6 solved against, so the axis grades the
+    # contact the solver was aiming at rather than a bounding-box approximation of it.
+    supports = support.build(graph, settings)
+    scale_checks = scale.run(
+        graph,
+        settings.max_prior_deviation_sigma,
+        settings.max_support_gap_m,
+        supports,
+    )
     stability_checks = stability.run(graph, settings)
     inertial_checks = inertial.run(graph, settings.max_inertia_rel_error)
     cost_check = cost.run(graph, settings.step_time_budget_ms)

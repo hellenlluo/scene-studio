@@ -46,7 +46,7 @@ from app.export.mjcf import body_name
 from app.geometry import quat_to_matrix
 from app.schemas import PartGeometry, SceneGraph, SceneObject
 
-__all__ = ["ROOT_NODE", "build_scene", "write_gltf"]
+__all__ = ["ROOT_NODE", "build_scene", "geometry_for", "node_transform", "write_gltf"]
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ ROOT_NODE = "scene_root"
 _Z_UP_TO_Y_UP = trimesh.transformations.rotation_matrix(-np.pi / 2.0, [1.0, 0.0, 0.0])
 
 
-def _node_transform(obj: SceneObject, part: PartGeometry) -> np.ndarray:
+def node_transform(obj: SceneObject, part: PartGeometry) -> np.ndarray:
     """Part-local geometry to scene coordinates.
 
     Right to left: scale the part, move it to its origin within the object (also
@@ -75,7 +75,7 @@ def _node_transform(obj: SceneObject, part: PartGeometry) -> np.ndarray:
     return to_world @ to_part @ scale
 
 
-def _geometry_for(part: PartGeometry) -> trimesh.Trimesh:
+def geometry_for(part: PartGeometry) -> trimesh.Trimesh:
     """The part's visual mesh, or a box from its OBB extent.
 
     A missing file falls back rather than raising: an export that dies because one
@@ -100,10 +100,10 @@ def build_scene(graph: SceneGraph) -> trimesh.Scene:
     for obj in graph.objects:
         for part in obj.parts:
             scene.add_geometry(
-                _geometry_for(part),
+                geometry_for(part),
                 node_name=body_name(obj.object_id, part.part_id),
                 parent_node_name=ROOT_NODE,
-                transform=_node_transform(obj, part),
+                transform=node_transform(obj, part),
             )
     return scene
 

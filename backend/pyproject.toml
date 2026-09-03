@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=12.3.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
+    "python-fcl>=0.7.0.11",
     "python-multipart>=0.0.32",
     "replicate>=1.0.7",
     "rtree>=1.4.1",

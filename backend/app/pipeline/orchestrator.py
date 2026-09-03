@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.certify import certify, repair
 from app.export import gltf, mjcf
-from app.pipeline import depth, inertia, labeling, reconcile, rigid, segment, solve
+from app.pipeline import depth, inertia, labeling, reconcile, rigid, segment, solve, verify
 from app.pipeline.base import PipelineContext, cache_key, load_cached, store_cached
 from app.schemas import (
     ExportResult,
@@ -96,6 +96,16 @@ def run_pipeline(
         (rig, seg, dep, lab),
         report,
     )
+    verified = _run_stage(
+        ctx,
+        StageName.VERIFY,
+        verify.VerifyResult,
+        lambda: verify.run(ctx, graph),
+        (graph,),
+        report,
+    )
+    graph = verified.graph
+
     graph = _run_stage(
         ctx,
         StageName.INERTIA,
@@ -156,5 +166,6 @@ def run_pipeline(
         weights=weights,
         diagnostics=solved.diagnostics,
         repairs_applied=repairs,
+        removed_objects=verified.removed,
         exports=exports,
     )

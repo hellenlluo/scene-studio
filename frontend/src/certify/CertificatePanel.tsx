@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { SceneEnvelope } from "../api/client";
+import type { SceneEnvelope, SceneObject } from "../api/client";
 import { api } from "../api/client";
 import { useSceneStore } from "../scene/store";
 import {
@@ -15,6 +15,50 @@ interface Props {
   envelope: SceneEnvelope;
 }
 
+/** `CATEGORIES` in the backend is a closed, snake_case vocabulary — "side_table",
+ * "dining_table" — chosen for that, not for display. Formatting is presentation
+ * and belongs here rather than in the schema. */
+function formatCategory(category: string): string {
+  return category.replaceAll("_", " ");
+}
+
+/** Human-readable names for the object list, unique within a scene.
+ *
+ * The category alone is not enough: a room with two cushions produces two rows
+ * reading "cushion", and clicking the right one becomes guesswork. Only the
+ * repeated categories get a number, so a lone sofa stays "sofa" rather than
+ * "sofa 1" — a count of one is noise.
+ *
+ * Numbered by the graph's own order, which is stable for a given scene, so a row
+ * does not renumber itself between renders or after a repair. Keyed on the raw
+ * category, before formatting, so two categories that only differ by underscores
+ * placement could never collide into one count — not a real case today, but the
+ * formatted string is display, not identity.
+ */
+function objectDisplayNames(objects: SceneObject[]): Map<string, string> {
+  const totals = new Map<string, number>();
+  for (const object of objects) {
+    totals.set(
+      object.label.category,
+      (totals.get(object.label.category) ?? 0) + 1,
+    );
+  }
+
+  const seen = new Map<string, number>();
+  const names = new Map<string, string>();
+  for (const object of objects) {
+    const category = object.label.category;
+    const index = (seen.get(category) ?? 0) + 1;
+    seen.set(category, index);
+    const label = formatCategory(category);
+    names.set(
+      object.object_id,
+      totals.get(category)! > 1 ? `${label} ${index}` : label,
+    );
+  }
+  return names;
+}
+
 export function CertificatePanel({ envelope }: Props) {
   const certificate = envelope.spec.certificate;
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
@@ -24,6 +68,7 @@ export function CertificatePanel({ envelope }: Props) {
   const certified = isCertified(certificate);
   const unchecked = uncheckedAxes(certificate);
   const failing = failingObjectIds(certificate);
+  const displayNames = objectDisplayNames(envelope.spec.graph.objects);
 
   const repair = useMutation({
     mutationFn: () => api.repairScene(envelope.spec.scene_id),
@@ -88,6 +133,7 @@ export function CertificatePanel({ envelope }: Props) {
       <h3>Objects</h3>
       <ul className="objects">
         {envelope.spec.graph.objects.map((object) => {
+          const display = displayNames.get(object.object_id) ?? object.object_id;
           const failed = failing.has(object.object_id);
           const selected = object.object_id === selectedObjectId;
           return (
@@ -100,15 +146,20 @@ export function CertificatePanel({ envelope }: Props) {
                 onClick={() => select(selected ? null : object.object_id)}
               >
                 <span>
-                  {object.object_id}
+                  {display}
                   {/* A failed reconstruction renders as a plain box, which is
                       otherwise indistinguishable from a genuinely boxy object. */}
                   {object.degradation_reason && (
                     <span className="badge">box</span>
                   )}
                 </span>
-                <span className="object-category">{object.label.category}</span>
               </button>
+              {/* The id is the filename the meshes are written under, so it is what
+                  you need to go looking on disk — and nothing else. It stays out of
+                  the list and appears once the row is open. */}
+              {selected && (
+                <p className="object-id">{object.object_id}</p>
+              )}
               {selected && object.degradation_reason && (
                 <ul className="reasons">
                   <li className="reasons-degraded">

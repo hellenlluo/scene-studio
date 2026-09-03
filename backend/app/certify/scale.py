@@ -20,6 +20,7 @@ that is evaluation rather than certification.
 import numpy as np
 
 from app.geometry import world_aabb
+from app.pipeline.support import SupportHeights
 from app.schemas import ScaleCheck, SceneGraph, Vec3
 
 __all__ = ["run"]
@@ -42,7 +43,17 @@ def run(
     graph: SceneGraph,
     max_deviation_sigma: float,
     max_support_gap_m: float,
+    supports: SupportHeights | None = None,
 ) -> list[ScaleCheck]:
+    """Per-object scale and support checks.
+
+    `supports` carries the measured surface heights stage 6 solved against. Passing
+    it is what keeps the axis and the solver talking about the same contact: with
+    the axis on stored `dims_m` boxes and the solver on collision meshes, a table
+    the solver had correctly placed on a rug was reported 23.4 mm clear of it,
+    because the two disagree about where both surfaces are. Optional so the pure
+    fixtures still work without geometry on disk, and it degrades to the box.
+    """
     bounds = {obj.object_id: world_aabb(obj) for obj in graph.objects}
 
     checks: list[ScaleCheck] = []
@@ -71,7 +82,8 @@ def run(
             inside = True
         else:
             parent_low, parent_high = bounds[parent.object_id]
-            support_top = float(parent_high[2])
+            measured = supports.under(parent, low, high) if supports is not None else None
+            support_top = measured if measured is not None else float(parent_high[2])
             # Containment is tested on the footprint *centre*, not the whole
             # footprint. The centre-over-support test is the toppling condition
             # and it is what a physically wrong placement violates; requiring
@@ -83,8 +95,11 @@ def run(
                 np.all(centre_xy >= parent_low[:2]) and np.all(centre_xy <= parent_high[:2])
             )
 
-        # Positive means floating, negative means sunk into the support.
-        gap = float(low[2]) - support_top
+        # Positive means floating, negative means sunk into the support. Both sides
+        # measured the same way, for the reason in the docstring.
+        measured_base = supports.base_of(obj) if supports is not None else None
+        base = measured_base if measured_base is not None else float(low[2])
+        gap = base - support_top
 
         checks.append(
             ScaleCheck(

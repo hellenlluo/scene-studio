@@ -106,11 +106,22 @@ def test_settling_destroys_the_evidence_of_interpenetration(settings):
 
 
 def test_thresholds_come_from_settings(settings):
+    """Both directions on the *same* object, which has to be one that moves.
+
+    The tight case used to be asserted against a resting fixture table, on the
+    assumption that anything settled still drifts by more than a micron. It does
+    not: once `mjcf` stiffened the contact defaults, a correctly-placed rigid body
+    settles to 6e-8 m, so a 1e-6 threshold passes it and the test failed for the
+    right reason. The floating mug falls 25 cm, which is a displacement no contact
+    model is going to argue with.
+    """
+    graph = scenes.mug_floating_above_table()
+
     loose = settings.model_copy(update={"max_com_displacement_m": 1.0})
-    assert _by_object(stability.run(scenes.mug_floating_above_table(), loose))["mug"].passed
+    assert _by_object(stability.run(graph, loose))["mug"].passed
 
     tight = settings.model_copy(update={"max_com_displacement_m": 1e-6})
-    assert not _by_object(stability.run(scenes.kitchen(), tight))["table"].passed
+    assert not _by_object(stability.run(graph, tight))["mug"].passed
 
 
 def test_settle_duration_comes_from_settings(settings):

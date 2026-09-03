@@ -310,15 +310,40 @@ def _decompose(mesh: trimesh.Trimesh, ctx: PipelineContext) -> list[trimesh.Trim
     if len(source.faces) > ctx.settings.max_collision_faces:
         source = source.simplify_quadric_decimation(face_count=ctx.settings.max_collision_faces)
 
-    try:
-        raw = coacd.run_coacd(
+    def attempt(preprocess: str):
+        return coacd.run_coacd(
             coacd.Mesh(np.asarray(source.vertices), np.asarray(source.faces)),
             threshold=ctx.settings.coacd_threshold,
             max_convex_hull=ctx.settings.max_convex_pieces,
+            preprocess_mode=preprocess,
         )
-    except Exception as exc:  # any CoACD failure degrades the tier rather than the scene
-        log.warning("CoACD failed (%s); falling back to a convex hull", exc)
-        return []
+
+    # Preprocessing off by default. CoACD's `auto` mode voxelises the input at
+    # `preprocess_resolution` (50) to force manifoldness, and on a thin object that
+    # voxel is thicker than the object: measured on a reconstructed rug, 111:1
+    # aspect ratio, the proxy came back 33.7 mm thick against a 15.1 mm mesh — it
+    # bulged 9.3 mm below the floor, which the stability axis reported as a 10.8 mm
+    # penetration, and it lifted the side table resting on it 11.7 mm above the
+    # surface the viewer draws. Raising the resolution enough to fix that (>300) is
+    # too slow to be worth it.
+    #
+    # Measured across all seven objects in `room`, `off` is better or equal on every
+    # one: identical or fewer pieces, inflation 1.00x throughout against 2.23x for
+    # the rug, and faster — one plant went 19.1 s to 9.3 s. It also coped with both
+    # of the non-watertight meshes in that scene.
+    #
+    # `auto` is kept as the retry rather than deleted: preprocessing exists for input
+    # CoACD cannot otherwise handle, and paying for it only when the fast path fails
+    # is the right way round.
+    try:
+        raw = attempt("off")
+    except Exception as exc:
+        log.info("CoACD without preprocessing failed (%s); retrying with it", exc)
+        try:
+            raw = attempt("auto")
+        except Exception as retry_exc:  # degrade the tier rather than the scene
+            log.warning("CoACD failed (%s); falling back to a convex hull", retry_exc)
+            return []
 
     pieces = []
     for vertices, faces in raw:

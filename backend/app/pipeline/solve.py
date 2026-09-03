@@ -43,6 +43,7 @@ import numpy as np
 from scipy import optimize
 
 from app.geometry import world_aabb
+from app.pipeline import penetration, support
 from app.pipeline.base import PipelineContext
 from app.schemas import (
     DepthResult,
@@ -100,6 +101,24 @@ def _bounds(graph: SceneGraph, observations) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(low), np.asarray(high)
 
 
+class _Penetrations:
+    """The FCL objects plus the pair list, so neither is rebuilt per evaluation.
+
+    The pairs depend only on the support graph, which does not change during a
+    solve, and rebuilding them inside the residual would be the whole cost of the
+    term.
+    """
+
+    def __init__(self, graph: SceneGraph, settings):
+        self._depths = penetration.build(graph, settings)
+        self.pairs = penetration.pairs(graph)
+
+    def between(self, first, second) -> float:
+        if first is None or second is None:
+            return 0.0
+        return self._depths.between(first, second)
+
+
 def _residuals(
     x: np.ndarray,
     graph: SceneGraph,
@@ -107,6 +126,8 @@ def _residuals(
     weights: SolveWeights,
     anchors: list[ScaleAnchor],
     settled: dict[str, np.ndarray] | None,
+    supports: support.SupportHeights,
+    penetrations: _Penetrations,
 ) -> np.ndarray:
     _unpack(graph, x)
 
@@ -125,26 +146,39 @@ def _residuals(
             out += list(weights.depth * (extent - observed.extent))
 
         # Support: the gap to whatever this rests on, floor or object.
+        support_top = graph.floor_height_m
         if obj.supported_by and obj.supported_by in boxes:
-            support_top = float(boxes[obj.supported_by][1][2])
-        else:
-            support_top = graph.floor_height_m
-        out.append(weights.support * (float(low[2]) - support_top))
+            parent = graph.get(obj.supported_by)
+            # The height of the parent's real collision surface under this object's
+            # footprint. The box top is the fallback, not the answer: it is the top
+            # of a sofa's *backrest* rather than its seat, and it comes from stored
+            # `dims_m` rather than from the mesh — 8.5 mm out on a reconstructed rug.
+            # See `app.pipeline.support`.
+            measured = supports.under(parent, low, high) if parent is not None else None
+            support_top = measured if measured is not None else float(boxes[obj.supported_by][1][2])
+        # The child's underside, measured the same way. Both sides have to come from
+        # the same geometry or the residual closes onto something that is not the
+        # contact: with a measured surface but a stored box-bottom, a table settled
+        # 2.9 mm clear of the rug it was supposedly resting on, which is exactly the
+        # amount its `dims_m` box disagrees with its collision mesh.
+        measured_base = supports.base_of(obj)
+        base = measured_base if measured_base is not None else float(low[2])
+        out.append(weights.support * (base - support_top))
 
         if settled is not None and obj.object_id in settled:
             out += list(PHYSICS_WEIGHT * (np.asarray(obj.position_m) - settled[obj.object_id]))
 
     # Penetration, over pairs. One-sided: touching is fine, overlapping is not.
-    ids = [obj.object_id for obj in graph.objects]
-    supports = {(o.object_id, o.supported_by) for o in graph.objects if o.supported_by}
-    for i, first in enumerate(ids):
-        for second in ids[i + 1 :]:
-            if (first, second) in supports or (second, first) in supports:
-                continue  # a support contact is wanted, not a violation
-            overlap = np.minimum(boxes[first][1], boxes[second][1]) - np.maximum(
-                boxes[first][0], boxes[second][0]
-            )
-            out.append(weights.penetration * max(0.0, float(overlap.min())))
+    #
+    # Measured against the convex decomposition, not the bounding boxes. A box is
+    # a solid brick from an object's feet to its highest point, so a rug lying
+    # under a sofa reads as buried inside it — on `room.png` that was a phantom
+    # 14.5 mm the solver spent every iteration trying to resolve while both the
+    # decomposition and MuJoCo reported the pair as not touching at all. See
+    # `app.pipeline.penetration`.
+    for first, second in penetrations.pairs:
+        depth = penetrations.between(graph.get(first), graph.get(second))
+        out.append(weights.penetration * depth)
 
     # An anchor is E_prior with sigma -> 0: a hard pull on one axis.
     for anchor in anchors:
@@ -212,12 +246,18 @@ def run(
     result = None
 
     for round_index in range(MAX_ROUNDS):
+        # Rebuilt per round rather than once: a grid is exact under the parent's
+        # translation and scale, both of which it divides out, but is built from the
+        # parent's *collision meshes at their current pose*, so a round that moved a
+        # parent's parts wants a fresh one. Cheap — a few thousand rays per support.
+        supports = support.build(working, ctx.settings)
+        penetrations = _Penetrations(working, ctx.settings)
         before = _pack(working)
         result = optimize.least_squares(
             _residuals,
             before,
             bounds=(lower, upper),
-            args=(working, observations, weights, anchors, settled),
+            args=(working, observations, weights, anchors, settled, supports, penetrations),
             # Finite differences: the residual runs a physics-free geometry pass, so
             # an analytic Jacobian would be a second implementation of it to keep in
             # step for no gain at this problem size.
@@ -258,16 +298,25 @@ def run(
         diagnostics=SolveDiagnostics(
             iterations=total_iterations,
             converged=converged,
-            residual_by_term=_term_costs(working, observations, weights, anchors, settled),
+            residual_by_term=_term_costs(
+                working, observations, weights, anchors, settled, supports, penetrations
+            ),
             scale_variance=_scale_variance(working, result),
         ),
     )
 
 
-def _term_costs(graph, observations, weights, anchors, settled) -> dict[str, float]:
+def _term_costs(
+    graph, observations, weights, anchors, settled, supports, penetrations
+) -> dict[str, float]:
     """Each term's share of the final cost, for seeing which one is binding."""
     x = _pack(graph)
-    full = float(np.sum(_residuals(x, graph, observations, weights, anchors, settled) ** 2))
+    full = float(
+        np.sum(
+            _residuals(x, graph, observations, weights, anchors, settled, supports, penetrations)
+            ** 2
+        )
+    )
     bare = SolveWeights(depth=0.0, support=0.0, penetration=0.0)
     return {
         "total": full,
@@ -283,6 +332,8 @@ def _term_costs(graph, observations, weights, anchors, settled) -> dict[str, flo
                     ),
                     anchors,
                     settled,
+                    supports,
+                    penetrations,
                 )
                 ** 2
             )

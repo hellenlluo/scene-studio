@@ -82,6 +82,15 @@ class Settings(BaseSettings):
         "the max_penetration_m argument above binds again.",
     )
 
+    # --- stage 5.5: reconstruction verification ---
+    snapshot_max_dim_px: int = Field(
+        default=900,
+        description="Longest edge of the rendered comparison snapshot. Matched to "
+        "`annotate.py`'s own scale reference rather than chosen independently — "
+        "both exist to be read by the same family of vision models, so there is no "
+        "reason for them to disagree about how much resolution that needs.",
+    )
+
     # --- stage 9: inertia and collision proxies ---
     coacd_threshold: float = Field(
         default=0.05,
@@ -103,6 +112,23 @@ class Settings(BaseSettings):
         "cap is high to keep UVs; collision geometry has no UVs and CoACD's runtime "
         "grows with the input, so this one stays low. The output pieces are convex "
         "hulls either way, and a hull does not remember the faces it came from.",
+    )
+
+    # --- stage 6: support surfaces ---
+    support_grid_cell_m: float = Field(
+        default=0.02,
+        description="Cell size of the top-surface height grid the solver reads an "
+        "object's support height out of. 2 cm is chosen against "
+        "`max_support_gap_m` (5 mm) rather than for looks: the grid answers *where* "
+        "a surface is, and the solver then closes the last millimetres itself, so "
+        "the cell only has to be small enough not to miss a surface feature an "
+        "object could rest on. Finer costs rays quadratically.",
+    )
+    support_grid_max_cells: int = Field(
+        default=128,
+        description="Cap per axis, so a large support degrades to a coarser cell "
+        "rather than to a quarter-million rays. A 2.5 m rug at 2 cm is 125 cells, "
+        "so this binds only on something bigger than the room.",
     )
 
     # --- stage 2: local depth ---

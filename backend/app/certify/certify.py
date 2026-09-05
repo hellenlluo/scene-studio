@@ -65,4 +65,6 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
         # Recorded on the certificate, not just read from settings, so a stored
         # result stays interpretable after the threshold moves.
         penetration_tolerance_m=settings.max_penetration_m,
+        com_displacement_tolerance_m=settings.max_com_displacement_m,
+        orientation_drift_tolerance_deg=settings.max_orientation_drift_deg,
     )

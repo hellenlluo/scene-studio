@@ -8,6 +8,7 @@ import { useEffect } from "react";
 
 import { api } from "./api/client";
 import { CertificatePanel } from "./certify/CertificatePanel";
+import { usePhysics } from "./certify/usePhysics";
 import { ScenePanel } from "./scene/ScenePanel";
 import { Toolbar } from "./scene/Toolbar";
 import { Viewer } from "./scene/Viewer";
@@ -31,6 +32,12 @@ function SceneStudio() {
     // Keeping the tree mounted also removes a flash of empty panel.
     placeholderData: keepPreviousData,
   });
+
+  // Lifted here because the button and the poses land in different subtrees: the
+  // control is in the certificate panel, next to Repair, and the poses drive meshes
+  // inside the Viewer. Keyed on `updated_at` as well as the id, so a repair — which
+  // rewrites the graph — tears the worker down rather than stepping a stale model.
+  const physics = usePhysics(sceneId, scene.data?.updated_at);
 
   // Open the first scene once the list arrives, so there is something on screen
   // without a click.
@@ -60,11 +67,15 @@ function SceneStudio() {
                 no scenes yet — run <code>uv run python -m app.seed</code>
               </div>
             )}
-            {scene.data && <Viewer envelope={scene.data} />}
+            {scene.data && (
+              <Viewer envelope={scene.data} poses={physics.poses} />
+            )}
           </div>
         </div>
 
-        {scene.data && <CertificatePanel envelope={scene.data} />}
+        {scene.data && (
+          <CertificatePanel envelope={scene.data} physics={physics} />
+        )}
       </main>
     </div>
   );

@@ -46,6 +46,7 @@ from app.geometry import world_aabb
 from app.pipeline import penetration, support
 from app.pipeline.base import PipelineContext
 from app.schemas import (
+    DepthObservation,
     DepthResult,
     Provenance,
     ScaleAnchor,
@@ -61,9 +62,21 @@ __all__ = ["SolveResult", "run"]
 log = logging.getLogger(__name__)
 
 # Outer block-coordinate rounds: smooth solve, then settle, then re-solve against
-# what settling revealed. Two is usually enough; the loop exits early when a round
-# stops changing anything.
-MAX_ROUNDS = 4
+# what settling revealed. The loop exits early the moment both flags are true, so
+# this only binds on a scene that never gets there.
+#
+# Five because the useful work is done by four and there is nothing after it.
+# Measured on `room`, which contains one object that topples: moved per round went
+# 199, 40, 16, 6.9 mm and then *plateaued at exactly 8.0 mm*, with the settling
+# drift alternating 260, 331, 260, 331 forever — a period-2 limit cycle, not slow
+# convergence. The solver places the lamp, `_settle` reports it fallen, the physics
+# term pulls the estimate toward the fallen pose, the depth and support terms pull
+# it back, and it falls the other way. Ten rounds cost twice the time and produced
+# an identical scene.
+#
+# So the cap is not a convergence budget, it is a cutoff for the pathological case.
+# A scene with nothing unstable in it exits early and never reaches this.
+MAX_ROUNDS = 5
 ROUND_TOLERANCE_M = 2e-3
 
 # Weight on the settled-pose residual. Deliberately below the depth weight: settling
@@ -86,19 +99,40 @@ def _unpack(graph: SceneGraph, x: np.ndarray) -> None:
         obj.position_m = (float(block[1]), float(block[2]), float(block[3]))
 
 
+# How far a variable may move from where it started. Bounds rather than penalties,
+# so the search cannot trade a physics violation for a scale one and report success:
+# without them the penetration term will push an object arbitrarily far to stop it
+# overlapping.
+_SCALE_FACTOR = 4.0
+_POSITION_RANGE_M = 1.0
+
+
 def _bounds(graph: SceneGraph, observations) -> tuple[np.ndarray, np.ndarray]:
     """Keep the search near the measurement rather than unbounded.
 
-    Scale is allowed a factor of four either way and position a metre. Without
-    bounds the penetration term can push an object arbitrarily far to stop it
-    overlapping, which trades a physics violation for a scale one and reports
-    success.
+    **An object with no depth observation has its scale frozen.** Nothing else in
+    the objective carries absolute size: `E_prior` has no priors table yet, and the
+    support and penetration terms only care about surfaces meeting. Left free, the
+    solver discovers it can close a contact by shrinking the object as easily as by
+    moving it, and does — measured on a hand-authored fixture with no observations,
+    a mug re-solved to a quarter of its size with a support gap of 1e-10 and a
+    straight face. No measurement of a thing's size is not a licence to change it.
+
+    This never binds on pipeline output, where every object carries an observation.
+    It binds on the fixtures, and on any scene assembled by hand.
     """
     low, high = [], []
     for obj in graph.objects:
-        low += [np.log(obj.scale) - np.log(4.0), *(p - 1.0 for p in obj.position_m)]
-        high += [np.log(obj.scale) + np.log(4.0), *(p + 1.0 for p in obj.position_m)]
-    return np.asarray(low), np.asarray(high)
+        logged = np.log(obj.scale)
+        measured = obj.object_id in observations
+        span = np.log(_SCALE_FACTOR) if measured else 0.0
+        low += [logged - span, *(p - _POSITION_RANGE_M for p in obj.position_m)]
+        high += [logged + span, *(p + _POSITION_RANGE_M for p in obj.position_m)]
+    # `least_squares` rejects a zero-width interval, so a frozen scale is given the
+    # narrowest one it will accept rather than an exactly equal pair.
+    lower, upper = np.asarray(low), np.asarray(high)
+    upper = np.maximum(upper, lower + 1e-12)
+    return lower, upper
 
 
 class _Penetrations:
@@ -197,7 +231,7 @@ def _settle(ctx: PipelineContext, graph: SceneGraph) -> dict[str, np.ndarray]:
 
     from app.export import mjcf
 
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
+    model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
     for _ in range(round(ctx.settings.settle_seconds / model.opt.timestep)):
@@ -213,20 +247,33 @@ def _settle(ctx: PipelineContext, graph: SceneGraph) -> dict[str, np.ndarray]:
     return settled
 
 
-def run(
+def _measure(
     ctx: PipelineContext,
     graph: SceneGraph,
-    depth: DepthResult,
-    segments: SegmentResult,
-    weights: SolveWeights,
-    anchors: list[ScaleAnchor] | None = None,
-) -> SolveResult:
-    from app.pipeline.reconcile import observe
+    depth: DepthResult | None,
+    segments: SegmentResult | None,
+) -> dict:
+    """The depth measurement per object, from the depth map or from the graph.
 
-    anchors = anchors or []
-    working = graph.model_copy(deep=True)
-    if not working.objects:
-        return SolveResult(graph=working, diagnostics=SolveDiagnostics(converged=True))
+    First time through the pipeline both are supplied and this reads the depth map.
+    A re-solve — a user committing an edit, say — has neither: the `.npy` and every
+    mask PNG would have to still be on disk under the key that produced them, which
+    is a lot to require of a scene the client is looking at right now. So the six
+    numbers stage 6 actually reads are carried on the graph, and this prefers the
+    map when it is there and falls back to them when it is not.
+    """
+    from app.pipeline.reconcile import Observation, observe
+
+    if depth is None or segments is None:
+        return {
+            obj.object_id: Observation(
+                centre=np.asarray(obj.observation.centre_m, dtype=float),
+                extent=np.asarray(obj.observation.extent_m, dtype=float),
+                footprint_xy=np.empty((0, 2)),
+            )
+            for obj in graph.objects
+            if obj.observation is not None
+        }
 
     observations, _, _ = observe(ctx, segments, depth)
     # `observe` reports in camera coordinates; reconcile recentred the graph out of
@@ -238,11 +285,57 @@ def run(
         observations = {
             key: value._replace(centre=value.centre + offset) for key, value in observations.items()
         }
+    return observations
+
+
+def run(
+    ctx: PipelineContext,
+    graph: SceneGraph,
+    depth: DepthResult | None,
+    segments: SegmentResult | None,
+    weights: SolveWeights,
+    anchors: list[ScaleAnchor] | None = None,
+) -> SolveResult:
+    """Solve the scene, starting from wherever it currently is.
+
+    **The graph's current pose is the initial guess, not a constraint.** That is
+    what makes committing a user edit work without any pinning machinery: move an
+    object, re-run, and the solver refines from where you put it rather than from
+    where reconstruction did. `_bounds` allows a metre either way of the starting
+    position, so an edit also shifts the region searched.
+
+    Whether an edit should be *held* rather than merely seeded is a separate
+    question and deliberately not answered here. A typed dimension is a measurement
+    the user has and depth does not, and that already is a hard constraint — see
+    `ScaleAnchor`. A dragged position is an eyeball estimate, and treating it as
+    infinitely certain would discard the depth measurement in its favour.
+    """
+    anchors = anchors or []
+    working = graph.model_copy(deep=True)
+    if not working.objects:
+        # Trivially both: there is nothing to move and nothing to settle. Reporting
+        # `settled=False` here would say an empty scene is physically unresolved.
+        return SolveResult(
+            graph=working, diagnostics=SolveDiagnostics(converged=True, settled=True)
+        )
+
+    observations = _measure(ctx, working, depth, segments)
+    # Carried on the graph so a later re-solve needs neither the depth map nor the
+    # masks; see `DepthObservation`.
+    for obj in working.objects:
+        found = observations.get(obj.object_id)
+        if found is not None:
+            obj.observation = DepthObservation(
+                centre_m=tuple(float(v) for v in found.centre),
+                extent_m=tuple(float(v) for v in found.extent),
+            )
     lower, upper = _bounds(working, observations)
 
     settled: dict[str, np.ndarray] | None = None
     total_iterations = 0
     converged = False
+    is_settled = False
+    max_drift = 0.0
     result = None
 
     for round_index in range(MAX_ROUNDS):
@@ -285,8 +378,14 @@ def run(
             moved,
             drift,
         )
-        if moved < ROUND_TOLERANCE_M and drift < ROUND_TOLERANCE_M:
-            converged = True
+        converged = moved < ROUND_TOLERANCE_M
+        is_settled = drift < ROUND_TOLERANCE_M
+        max_drift = drift
+        # Both, because the loop has nothing left to do only when the optimiser has
+        # stopped moving *and* physics agrees with where it stopped. Reported apart
+        # so a scene held back by one unstable object is not mistaken for a failed
+        # solve; see `SolveDiagnostics`.
+        if converged and is_settled:
             break
 
     for obj in working.objects:
@@ -298,6 +397,8 @@ def run(
         diagnostics=SolveDiagnostics(
             iterations=total_iterations,
             converged=converged,
+            settled=is_settled,
+            max_settle_drift_m=max_drift,
             residual_by_term=_term_costs(
                 working, observations, weights, anchors, settled, supports, penetrations
             ),

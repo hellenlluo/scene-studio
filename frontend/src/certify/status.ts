@@ -10,21 +10,23 @@
  * disagreeing is precisely the bug that would make the viewer's red channel lie —
  * showing an object as fine when the backend has failed it, or the reverse.
  */
-import type { AxisStatus, Certificate, SceneSpec } from '../api/client'
+import type { AxisStatus, Certificate, SceneSpec } from "../api/client";
 
-export const AXES = ['scale', 'stability', 'inertial', 'cost'] as const
-export type AxisName = (typeof AXES)[number]
+export const AXES = ["scale", "stability", "inertial", "cost"] as const;
+export type AxisName = (typeof AXES)[number];
 
 /** What a single object's geometry should be drawn as. */
-export type ObjectStatus = 'failed' | 'ok'
+export type ObjectStatus = "failed" | "ok";
 
-export function axisStatuses(certificate: Certificate): Record<AxisName, AxisStatus> {
+export function axisStatuses(
+  certificate: Certificate,
+): Record<AxisName, AxisStatus> {
   return {
     scale: certificate.scale_status,
     stability: certificate.stability_status,
     inertial: certificate.inertial_status,
     cost: certificate.cost_status,
-  }
+  };
 }
 
 /**
@@ -36,17 +38,17 @@ export function axisStatuses(certificate: Certificate): Record<AxisName, AxisSta
  * `Certificate.passed`.
  */
 export function isCertified(certificate: Certificate): boolean {
-  const statuses = Object.values(axisStatuses(certificate))
+  const statuses = Object.values(axisStatuses(certificate));
   return (
-    statuses.every((status) => status !== 'fail') &&
-    statuses.every((status) => status !== 'not_run') &&
-    statuses.some((status) => status === 'pass')
-  )
+    statuses.every((status) => status !== "fail") &&
+    statuses.every((status) => status !== "not_run") &&
+    statuses.some((status) => status === "pass")
+  );
 }
 
 /** Axes no validator reached. Non-empty means `isCertified` cannot be true. */
 export function uncheckedAxes(certificate: Certificate): AxisName[] {
-  return AXES.filter((axis) => axisStatuses(certificate)[axis] === 'not_run')
+  return AXES.filter((axis) => axisStatuses(certificate)[axis] === "not_run");
 }
 
 /**
@@ -58,57 +60,111 @@ export function uncheckedAxes(certificate: Certificate): AxisName[] {
  * problem rather than two.
  */
 export function failingObjectIds(certificate: Certificate): Set<string> {
-  const failing = new Set<string>()
-  for (const check of certificate.scale ?? []) if (!check.passed) failing.add(check.object_id)
-  for (const check of certificate.stability ?? []) if (!check.passed) failing.add(check.object_id)
-  for (const check of certificate.inertial ?? []) if (!check.passed) failing.add(check.object_id)
-  return failing
+  const failing = new Set<string>();
+  for (const check of certificate.scale ?? [])
+    if (!check.passed) failing.add(check.object_id);
+  for (const check of certificate.stability ?? [])
+    if (!check.passed) failing.add(check.object_id);
+  for (const check of certificate.inertial ?? [])
+    if (!check.passed) failing.add(check.object_id);
+  return failing;
 }
 
-export function statusFor(objectId: string, certificate: Certificate): ObjectStatus {
-  return failingObjectIds(certificate).has(objectId) ? 'failed' : 'ok'
+export function statusFor(
+  objectId: string,
+  certificate: Certificate,
+): ObjectStatus {
+  return failingObjectIds(certificate).has(objectId) ? "failed" : "ok";
 }
 
 /** Human-readable reasons one object failed, in physical units. */
-export function reasonsFor(objectId: string, certificate: Certificate): string[] {
-  const mm = (metres: number) => `${(metres * 1000).toFixed(0)} mm`
-  const tolerance = mm(certificate.penetration_tolerance_m ?? 0.002)
-  const reasons: string[] = []
+export function reasonsFor(
+  objectId: string,
+  certificate: Certificate,
+  /** Display names by object id, so a reason names its neighbour the way the
+   * object list does rather than by mesh filename. Optional: the reason still
+   * reads correctly without it. */
+  names?: Map<string, string>,
+): string[] {
+  // One decimal below a centimetre, so a sub-millimetre measurement reads as what
+  // it is. `0 mm` was the old output for 4.7 micrometres of contact noise, which
+  // is a reason that argues against itself.
+  const mm = (metres: number) => {
+    const value = metres * 1000;
+    return `${value.toFixed(Math.abs(value) < 10 ? 1 : 0)} mm`;
+  };
+  const penetrationLimit = certificate.penetration_tolerance_m ?? 0.002;
+  const displacementLimit = certificate.com_displacement_tolerance_m ?? 0.01;
+  const driftLimit = certificate.orientation_drift_tolerance_deg ?? 2;
+  const tolerance = mm(penetrationLimit);
+  const reasons: string[] = [];
 
   for (const check of certificate.scale ?? []) {
-    if (check.object_id !== objectId || check.passed) continue
+    if (check.object_id !== objectId || check.passed) continue;
     if (Math.abs(check.support_gap_m ?? 0) > 0) {
-      const gap = check.support_gap_m ?? 0
+      const gap = check.support_gap_m ?? 0;
       // The sign is the diagnosis: floating and buried are different errors.
-      const direction = gap > 0 ? 'floating above' : 'sunk into'
-      reasons.push(`${direction} its support by ${mm(Math.abs(gap))} (tolerance ±${tolerance})`)
+      const direction = gap > 0 ? "floating above" : "sunk into";
+      reasons.push(
+        `${direction} its support by ${mm(Math.abs(gap))} (tolerance ±${tolerance})`,
+      );
     }
-    const worst = Math.max(...check.deviation_sigma.map(Math.abs))
-    if (worst > 3) reasons.push(`${worst.toFixed(1)}σ from its class prior`)
-    if (!check.base_inside_parent) reasons.push('base is not over its support')
+    const worst = Math.max(...check.deviation_sigma.map(Math.abs));
+    if (worst > 3) reasons.push(`${worst.toFixed(1)}σ from its class prior`);
+    if (!check.base_inside_parent) reasons.push("base is not over its support");
   }
 
+  // Each measurement against its own tolerance, not against zero. A check that
+  // fails on one criterion used to list all three: the lamp failed on 295 mm of
+  // displacement and was also reported as overlapping its neighbour, on the
+  // strength of 4.7 micrometres of MuJoCo contact noise. A reason nobody can act
+  // on is worse than no reason, because it sends you looking for a collision that
+  // is not there.
   for (const check of certificate.stability ?? []) {
-    if (check.object_id !== objectId || check.passed) continue
-    if (check.initial_penetration_m > 0) {
-      reasons.push(`overlaps another object by ${mm(check.initial_penetration_m)} at rest`)
+    if (check.object_id !== objectId || check.passed) continue;
+    if (check.initial_penetration_m > penetrationLimit) {
+      // Sunk into the ground and interpenetrating a neighbour are different
+      // reconstruction errors, and "overlaps another object" sends you hunting
+      // through the object list for a collision that is with the floor.
+      // null means a certificate stored before this was recorded, not "the floor" —
+      // so it falls back to the generic wording rather than asserting something
+      // that might be false.
+      const against = check.penetration_against;
+      const what =
+        against == null
+          ? "overlaps another object"
+          : against === "floor"
+            ? "sinks into the floor"
+            : `overlaps ${names?.get(against) ?? against}`;
+      reasons.push(
+        `${what} by ${mm(check.initial_penetration_m)} at rest (tolerance ${tolerance})`,
+      );
     }
-    if (check.com_displacement_m > 0.001) {
-      reasons.push(`moves ${(check.com_displacement_m * 100).toFixed(1)} cm while settling`)
+    if (check.com_displacement_m > displacementLimit) {
+      reasons.push(
+        `moves ${(check.com_displacement_m * 100).toFixed(1)} cm while settling ` +
+          `(tolerance ${(displacementLimit * 100).toFixed(1)} cm)`,
+      );
     }
-    if (check.orientation_drift_deg > 0.1) {
-      reasons.push(`tips ${check.orientation_drift_deg.toFixed(1)}° while settling`)
+    if (check.orientation_drift_deg > driftLimit) {
+      reasons.push(
+        `tips ${check.orientation_drift_deg.toFixed(1)}° while settling ` +
+          `(tolerance ${driftLimit.toFixed(1)}°)`,
+      );
     }
   }
 
   for (const check of certificate.inertial ?? []) {
-    if (check.object_id !== objectId || check.passed) continue
-    if (!check.mass_density_volume_consistent) reasons.push('mass disagrees with density × volume')
-    if (!check.positive_definite) reasons.push('inertia tensor is not positive definite')
-    if (!check.triangle_inequality) reasons.push('inertia violates the triangle inequality')
+    if (check.object_id !== objectId || check.passed) continue;
+    if (!check.mass_density_volume_consistent)
+      reasons.push("mass disagrees with density × volume");
+    if (!check.positive_definite)
+      reasons.push("inertia tensor is not positive definite");
+    if (!check.triangle_inequality)
+      reasons.push("inertia violates the triangle inequality");
   }
 
-  return reasons
+  return reasons;
 }
 
 /**
@@ -121,7 +177,7 @@ export function reasonsFor(objectId: string, certificate: Certificate): string[]
  * the separator therefore cannot work: by the time we see the name, it is gone.
  */
 export function sanitizeNodeName(name: string): string {
-  return name.replace(/\s/g, '_').replace(/[[\]./:]/g, '')
+  return name.replace(/\s/g, "_").replace(/[[\]./:]/g, "");
 }
 
 /**
@@ -133,12 +189,15 @@ export function sanitizeNodeName(name: string): string {
  * the map from the same `{object_id}/{part_id}` rule the exporter used is exact,
  * and a miss shows up as an unmatched node rather than a wrong colour.
  */
-export function nodeToObjectId(graph: SceneSpec['graph']): Map<string, string> {
-  const map = new Map<string, string>()
+export function nodeToObjectId(graph: SceneSpec["graph"]): Map<string, string> {
+  const map = new Map<string, string>();
   for (const object of graph.objects) {
     for (const part of object.parts) {
-      map.set(sanitizeNodeName(`${object.object_id}/${part.part_id}`), object.object_id)
+      map.set(
+        sanitizeNodeName(`${object.object_id}/${part.part_id}`),
+        object.object_id,
+      );
     }
   }
-  return map
+  return map;
 }

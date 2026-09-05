@@ -359,3 +359,84 @@ main {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.72rem;
 }
+
+/* Solve flags. Green and red rather than pass/fail wording, because neither is an
+   axis of the certificate — they describe the solve, not the scene's verdict. */
+.flag-ok {
+  color: var(--pass);
+}
+.flag-bad {
+  color: var(--fail);
+}
+
+/* Physics controls. Grouped above the axes because they act on the whole scene
+   rather than on the selection, and because running physics is how you check the
+   verdict the axes report. */
+.physics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.physics-toggle,
+.physics-reset {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.physics-toggle:hover:not(:disabled),
+.physics-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.physics-toggle:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Uncommitted edits. Grey rather than red: nothing failed, the certificate simply
+   does not describe what is on screen any more. The design keeps confidently-wrong
+   and not-yet-checked in separate channels on purpose. */
+.verdict--stale {
+  color: var(--muted);
+}
+.commit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.commit-button,
+.commit-discard {
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.commit-discard {
+  border-color: var(--line);
+  color: var(--muted);
+}
+.commit-button:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: default;
+}
+.repair:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: default;
+}

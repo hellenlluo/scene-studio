@@ -12,12 +12,22 @@ things are called, so `app.certify` maps MuJoCo indices back to schema objects b
 calling it rather than by parsing strings apart.
 """
 
+import logging
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from app.schemas import PartGeometry, SceneGraph, SceneObject, Vec3
 
-__all__ = ["body_name", "build_xml", "free_joint_name", "write_mjcf"]
+__all__ = [
+    "body_name",
+    "build_xml",
+    "free_joint_name",
+    "load_model",
+    "mesh_files",
+    "write_mjcf",
+]
+
+log = logging.getLogger(__name__)
 
 
 def body_name(object_id: str, part_id: str) -> str:
@@ -206,7 +216,23 @@ def _add_object(
 
 
 def build_xml(graph: SceneGraph) -> str:
-    """The whole scene as an MJCF string. Pure — no filesystem, so tests are cheap."""
+    """The whole scene as an MJCF string. Pure — no filesystem, so tests are cheap.
+
+    Mesh assets are named by **bare filename**, not by path, and the bytes are
+    supplied separately — `mesh_files` lists what to supply, `load_model` does it.
+    Absolute paths were the obvious thing and wrong three ways over:
+
+    - a browser cannot open one, and `@mujoco/mujoco` runs the same engine over the
+      same MJCF, which is what lets the frontend be authoritative rather than an
+      approximation;
+    - a stored scene broke the moment `storage_dir` moved, which it does between a
+      machine and a test's temp directory;
+    - the alternative — one MJCF for the server and another for the browser — is
+      exactly the drift this module exists as a single function to prevent.
+
+    Both consumers now load the same string through a virtual filesystem: Python's
+    `from_xml_string(xml, assets)` and the WASM build's `mj_loadXML(xml, vfs)`.
+    """
     root = ET.Element("mujoco", {"model": "scenestudio"})
 
     ET.SubElement(root, "compiler", {"angle": "radian"})
@@ -243,7 +269,9 @@ def build_xml(graph: SceneGraph) -> str:
         asset_el = ET.Element("asset")
         for name, (path, scale) in sorted(assets.items()):
             ET.SubElement(
-                asset_el, "mesh", {"name": name, "file": path, "scale": _fmt((scale,) * 3)}
+                asset_el,
+                "mesh",
+                {"name": name, "file": Path(path).name, "scale": _fmt((scale,) * 3)},
             )
         # Located by lookup rather than a literal index: MuJoCo wants `asset` ahead
         # of `worldbody`, and a hard-coded position silently means the wrong slot the
@@ -252,6 +280,58 @@ def build_xml(graph: SceneGraph) -> str:
 
     ET.indent(root, space="  ")
     return ET.tostring(root, encoding="unicode")
+
+
+def mesh_files(graph: SceneGraph) -> dict[str, str]:
+    """Bare filename -> the path to read it from, for every mesh the MJCF names.
+
+    Keyed on the name that appears in `file=`, which is what a virtual filesystem
+    has to answer to. Two objects whose decompositions happen to produce the same
+    filename would collide here — they cannot today, because `inertia` prefixes
+    every proxy with its object id.
+    """
+    assets: dict[str, tuple[str, float]] = {}
+    root = ET.Element("mujoco")
+    worldbody = ET.SubElement(root, "worldbody")
+    for obj in graph.objects:
+        _add_object(worldbody, obj, assets)
+    return {Path(path).name: path for path, _ in assets.values()}
+
+
+def load_model(graph: SceneGraph):
+    """Compile the scene, supplying mesh bytes rather than letting MuJoCo find files.
+
+    Every backend consumer goes through here — the stability axis, the cost axis and
+    the solver's settle — so none of them depends on the working directory, and all
+    three compile the identical string the browser will.
+    """
+    import mujoco
+
+    # Unreadable proxies are dropped from the graph *before* the XML is built, not
+    # merely skipped when supplying bytes. Naming an asset whose file never arrives
+    # makes the compile fail outright, so the object would cost the whole scene
+    # rather than one geom. A part left with no proxies falls back to its OBB box,
+    # which is what `_add_geoms` already does and the right thing to degrade to.
+    working = graph
+    missing: list[str] = []
+    for obj in graph.objects:
+        for part in obj.parts:
+            gone = [p for p in part.collision_mesh_paths if not Path(p).exists()]
+            if gone:
+                missing.extend(gone)
+                working = working if working is not graph else graph.model_copy(deep=True)
+    if missing:
+        for name in missing:
+            log.warning("mjcf: %s is missing; that geom is dropped", name)
+        absent = set(missing)
+        for obj in working.objects:
+            for part in obj.parts:
+                part.collision_mesh_paths = [
+                    p for p in part.collision_mesh_paths if p not in absent
+                ]
+
+    assets = {name: Path(path).read_bytes() for name, path in mesh_files(working).items()}
+    return mujoco.MjModel.from_xml_string(build_xml(working), assets)
 
 
 def write_mjcf(graph: SceneGraph, out_dir: Path) -> Path:

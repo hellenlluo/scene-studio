@@ -192,13 +192,25 @@ class SupportHeights:
             return None
         return float(obj.position_m[2] + obj.scale * offset)
 
-    def under(self, parent: SceneObject, low: np.ndarray, high: np.ndarray) -> float | None:
+    def under(
+        self,
+        parent: SceneObject,
+        low: np.ndarray,
+        high: np.ndarray,
+        centre_only: bool = False,
+    ) -> float | None:
         """World-space surface height under a child's footprint, or None.
 
         `low` and `high` are the child's world AABB — only its XY extent is read,
         to place the probes. None means the grid has nothing under any probe, which
         is the honest answer when the child is not over its support at all, and
         leaves the caller to fall back.
+
+        `centre_only` asks the narrower question "is this object's middle over that
+        surface", which is the toppling condition rather than the contact one. The
+        support *term* wants the contact and probes the whole footprint; deciding
+        *which* object something rests on wants the toppling test, because an object
+        overhanging a neighbour by one corner is not resting on it.
         """
         grid = self._grids.get(parent.object_id)
         if grid is None:
@@ -209,7 +221,7 @@ class SupportHeights:
         position = np.asarray(parent.position_m, dtype=float)
 
         best: float | None = None
-        for fx, fy in _PROBES:
+        for fx, fy in ((0.0, 0.0),) if centre_only else _PROBES:
             world_xy = centre_xy + half_xy * (fx, fy)
             oriented = (world_xy - position[:2]) / parent.scale
             height = grid.sample(float(oriented[0]), float(oriented[1]))
@@ -220,16 +232,26 @@ class SupportHeights:
         return float(position[2] + parent.scale * best)
 
 
-def build(graph: SceneGraph, settings: Settings) -> SupportHeights:
+def build(
+    graph: SceneGraph, settings: Settings, candidates: set[str] | None = None
+) -> SupportHeights:
     """Grids for every object that something in this graph rests on.
 
     Only those: a grid costs a mesh load and a few thousand rays, and an object
     nothing is resting on will never be asked.
     """
-    wanted = {obj.supported_by for obj in graph.objects if obj.supported_by}
+    wanted = (
+        candidates
+        if candidates is not None
+        else {obj.supported_by for obj in graph.objects if obj.supported_by}
+    )
     # Bases are wanted for every object that rests on something, grids only for the
     # objects being rested *on*. An object can of course be both.
-    needs_base = {obj.object_id for obj in graph.objects if obj.supported_by}
+    needs_base = (
+        {obj.object_id for obj in graph.objects}
+        if candidates is not None
+        else {obj.object_id for obj in graph.objects if obj.supported_by}
+    )
 
     grids: dict[str, _Grid] = {}
     bases: dict[str, float] = {}

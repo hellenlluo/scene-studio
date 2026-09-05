@@ -159,8 +159,72 @@ describe('reasonsFor', () => {
       ],
     })
     const reasons = reasonsFor('mug', cert)
-    expect(reasons).toContain('overlaps another object by 50 mm at rest')
+    expect(reasons.some((r) => r.includes('overlaps another object by 50 mm'))).toBe(true)
     expect(reasons.some((r) => r.includes('5.0 cm'))).toBe(true)
+    // The tolerance rides along, so a number can be judged without looking it up.
+    expect(reasons.some((r) => r.includes('tolerance'))).toBe(true)
+  })
+
+  it('only reports the criterion that actually failed', () => {
+    // A lamp that topples has huge displacement and micrometres of contact noise.
+    // Testing penetration against zero reported both, and rounded the second to
+    // "overlaps another object by 0 mm" — a reason that sends you looking for a
+    // collision that is not there.
+    const cert = certificate({
+      stability: [
+        stabilityCheck('lamp', {
+          initial_penetration_m: 4.7e-6,
+          com_displacement_m: 0.295,
+          orientation_drift_deg: 26.2,
+          passed: false,
+        }),
+      ],
+    })
+    const reasons = reasonsFor('lamp', cert)
+
+    expect(reasons.some((r) => r.includes('overlaps'))).toBe(false)
+    expect(reasons.some((r) => r.includes('moves 29.5 cm'))).toBe(true)
+    expect(reasons.some((r) => r.includes('tips 26.2'))).toBe(true)
+  })
+
+  it('names the floor rather than calling it another object', () => {
+    const cert = certificate({
+      stability: [
+        stabilityCheck('lamp', {
+          initial_penetration_m: 0.03,
+          penetration_against: 'floor',
+          passed: false,
+        }),
+      ],
+    })
+    const reasons = reasonsFor('lamp', cert)
+    expect(reasons.some((r) => r.includes('sinks into the floor by 30 mm'))).toBe(true)
+    expect(reasons.some((r) => r.includes('another object'))).toBe(false)
+  })
+
+  it('names the neighbour it overlaps, using its display name', () => {
+    const cert = certificate({
+      stability: [
+        stabilityCheck('mug', {
+          initial_penetration_m: 0.05,
+          penetration_against: 'obj_548_711',
+          passed: false,
+        }),
+      ],
+    })
+    const names = new Map([['obj_548_711', 'side table']])
+    expect(reasonsFor('mug', cert, names).some((r) => r.includes('overlaps side table'))).toBe(
+      true,
+    )
+  })
+
+  it('does not round a sub-millimetre measurement away', () => {
+    const cert = certificate({
+      stability: [
+        stabilityCheck('mug', { initial_penetration_m: 0.0047, passed: false }),
+      ],
+    })
+    expect(reasonsFor('mug', cert).some((r) => r.includes('4.7 mm'))).toBe(true)
   })
 
   it('says nothing about an object that passed', () => {

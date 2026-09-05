@@ -32,6 +32,9 @@ export type StabilityCheck = components['schemas']['StabilityCheck']
 export type InertialCheck = components['schemas']['InertialCheck']
 export type AxisStatus = components['schemas']['AxisStatus']
 export type RepairAction = components['schemas']['RepairAction']
+export type PhysicsBundle = components['schemas']['PhysicsBundle']
+export type ObjectEdit = components['schemas']['ObjectEdit']
+export type SceneEditRequest = components['schemas']['SceneEditRequest']
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -49,6 +52,19 @@ export const api = {
   getScene: (sceneId: string) => request<SceneEnvelope>(`/api/scenes/${sceneId}`),
   repairScene: (sceneId: string) =>
     request<RepairResponse>(`/api/scenes/${sceneId}/repair`, { method: 'POST' }),
+  // The MJCF plus its mesh manifest. Built from the stored graph server-side, so it
+  // cannot disagree with the scene on screen the way a cached `scene.xml` URL could.
+  scenePhysics: (sceneId: string) =>
+    request<PhysicsBundle>(`/api/scenes/${sceneId}/physics`),
+  // Commit: the server re-solves from the edit and re-certifies, but does not
+  // repair. Repair changes objects the user did not touch, which is a surprising
+  // thing for a drag to do, so it stays its own deliberate action.
+  editScene: (sceneId: string, edit: SceneEditRequest) =>
+    request<SceneEnvelope>(`/api/scenes/${sceneId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(edit),
+    }),
 }
 
 /**

@@ -54,7 +54,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from app.geometry import matrix_to_quat
+from app.geometry import matrix_to_quat, quat_to_matrix
 from app.pipeline.base import PipelineContext
 from app.schemas import (
     InertialProperties,
@@ -151,9 +151,28 @@ def _closed(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     which is strictly the better measurement — but it is stage 4's to fix and the
     meshes on disk would have to be re-fetched to benefit.
 
-    Hole filling, not remeshing. It closes the boundary loops that remain after
-    welding and does nothing for a genuinely open shell, which is the honest
-    outcome — `is_watertight` afterwards is the caller's answer either way.
+    Hole filling first, then MeshFix for what it cannot reach. `trimesh`'s
+    `fill_holes` only spans simple planar boundary loops, and the defects that
+    survive welding are usually neither. Measured on `room.png`, the two meshes it
+    left open were not "open shells" in any meaningful sense:
+
+    - the rug had **one hexagonal hole** — six boundary edges out of 9598 faces
+    - the plant had **no holes at all** — five edges each shared by four faces,
+      a topology pinch rather than an opening, plus three detached fragments
+
+    Both closed in under 0.1 s with `pymeshfix`, at +0.1% and -2.6% of volume; the
+    plant's loss is the three fragments, which are reconstruction debris. Meshes
+    that were already watertight pass through unchanged, so this costs nothing on
+    the objects that never needed it.
+
+    Not `manifold3d`, which `app.certify.inertial` suggests: it refuses input that
+    is not already a volume, which is the condition being repaired. Voxel remeshing
+    would also work and is the fallback if MeshFix ever fails, but it destroys
+    surface detail and pulls in a further dependency.
+
+    **MeshFix prints "could not fix everything" even when it succeeds**, so its
+    output is not a success signal. `is_watertight` on the result is, and it is what
+    the caller reads.
     """
     repaired = mesh.copy()
     repaired.merge_vertices(merge_tex=True, merge_norm=True)
@@ -166,7 +185,36 @@ def _closed(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
         trimesh.repair.fill_holes(repaired)
         trimesh.repair.fix_winding(repaired)
         trimesh.repair.fix_inversion(repaired)
-    return repaired
+        if repaired.is_watertight:
+            return repaired
+        return _meshfix(repaired)
+
+
+def _meshfix(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """MeshFix's repair, or the input back if it does not help.
+
+    Returning the input on failure rather than raising keeps the contract of
+    `_closed`: it is best effort, and an object whose volume cannot be trusted is
+    reported as such rather than costing the scene.
+    """
+    import pymeshfix
+
+    try:
+        vertices, faces = pymeshfix.clean_from_arrays(
+            np.asarray(mesh.vertices, dtype=float), np.asarray(mesh.faces)
+        )
+    except Exception as exc:  # a repair that fails is not worth losing the scene over
+        log.warning("mesh repair failed (%s); leaving the surface open", exc)
+        return mesh
+
+    if not len(faces):
+        return mesh
+    fixed = trimesh.Trimesh(vertices=vertices, faces=faces)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        trimesh.repair.fix_inversion(fixed)
+        if not fixed.is_watertight or fixed.volume <= 0.0:
+            return mesh
+    return fixed
 
 
 def _box_mesh(dims: Vec3) -> trimesh.Trimesh:
@@ -353,6 +401,63 @@ def _decompose(mesh: trimesh.Trimesh, ctx: PipelineContext) -> list[trimesh.Trim
     return pieces
 
 
+def _flatten_base(
+    pieces: list[trimesh.Trimesh], obj: SceneObject, band_m: float
+) -> list[trimesh.Trimesh]:
+    """Bring the lowest vertices of a decomposition onto one plane.
+
+    A convex decomposition of a reconstructed object almost never has a flat
+    bottom. Measured on a floor lamp whose base is level to 0.01 degrees, the
+    collision hulls still varied 1.6 mm across its 268 mm width, so exactly *one*
+    vertex reached the floor and the other 42 hung between 0.1 and 1.6 mm above it.
+
+    A rigid body needs three non-collinear contacts to stand. With one it pivots,
+    and it topples no matter how well it is placed — that lamp had a support gap of
+    0.1 mm and fell 331 mm. Nothing downstream can fix it either: it is not a
+    placement error, so repair has nothing to move, and it is not a mass error, so
+    the centre of mass is irrelevant. Verified: softer contacts reduced the fall to
+    130 mm without stopping it, a contact margin made it worse, and levelling the
+    object left it on zero contacts. Flattening the base took it to 0.2 mm.
+
+    Contacts are also *stiffer* now than MuJoCo's default, which makes this worse
+    rather than better — a body that sinks micrometres never sinks the 1.6 mm it
+    would need to engage the rest of its own base.
+
+    The band is the penetration tolerance. Geometry finer than that is already
+    declared not to matter — `max_penetration_m` exists because "mesh discretisation
+    produces sub-millimetre contacts on surfaces flush by design" — so moving a
+    vertex within it cannot change a verdict that was ever trustworthy. It does put
+    a small flat spot on a genuinely round bottom, which is the honest cost and is
+    bounded by the same tolerance.
+
+    Along the object's own down direction, not the mesh's -Z: what has to be flat
+    is the face that meets the floor, and the two differ by the object's
+    orientation.
+    """
+    if not pieces:
+        return pieces
+
+    rotation = quat_to_matrix(obj.orientation)
+    up_local = rotation.T @ np.array([0.0, 0.0, 1.0])
+
+    heights = [np.asarray(piece.vertices, dtype=float) @ up_local for piece in pieces]
+    lowest = min(float(height.min()) for height in heights)
+
+    flattened = []
+    for piece, height in zip(pieces, heights, strict=True):
+        near = height < lowest + band_m
+        if not near.any():
+            flattened.append(piece)
+            continue
+        vertices = np.asarray(piece.vertices, dtype=float).copy()
+        vertices[near] -= np.outer(height[near] - lowest, up_local)
+        # Re-hulled because moving vertices can make a hull non-convex, and MuJoCo
+        # collides a mesh geom as its hull regardless — better to hand it one that
+        # already is than to let it silently take a different shape.
+        flattened.append(trimesh.Trimesh(vertices=vertices, faces=piece.faces).convex_hull)
+    return flattened
+
+
 def _write_proxies(
     obj: SceneObject, part: PartGeometry, pieces: list[trimesh.Trimesh], out: Path
 ) -> list[str]:
@@ -413,6 +518,7 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> SceneGraph:
             pieces = _decompose(solid, ctx) if mesh is not None else []
             if mesh is not None and not pieces:
                 pieces = [solid.convex_hull]
+            pieces = _flatten_base(pieces, obj, ctx.settings.max_penetration_m)
 
             part.collision_mesh_paths = _write_proxies(obj, part, pieces, out)
             part.proxy_tier = (
@@ -443,20 +549,33 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> SceneGraph:
 
 
 def _prune(graph: SceneGraph, out: Path) -> None:
-    """Drop proxy files nothing references any more.
+    """Drop proxy files belonging to objects this scene no longer has.
 
     After writing, never before — the same rule stage 4 arrived at the hard way.
     Clearing first means a run that dies partway takes the previous good proxies
     with it and leaves the stored scene pointing at files that are gone.
+
+    **By object, not by filename, and that distinction is load-bearing.** Pruning
+    every file the current run did not write looks tidier and corrupts the artifact
+    cache: `app.pipeline.base` stores this stage's output keyed on its inputs, that
+    output names collision files by absolute path, and the files are as much a part
+    of the artifact as the JSON is. A later run that decomposes the same object into
+    fewer pieces would delete the higher-indexed files — and then a cache *hit*
+    returns a graph pointing at geometry that no longer exists. Observed exactly
+    that: `obj_548_711_body_15.collision.obj` deleted by a 14-piece run, and MuJoCo
+    refusing to open it on the next run that hit the cache.
+
+    Keeping every file for an object that is still in the scene costs a few stale
+    OBJs when a decomposition shrinks. Deleting one the cache still refers to costs
+    a crash that looks like it came from the solver.
     """
-    written = {
-        Path(path).name
-        for obj in graph.objects
-        for part in obj.parts
-        for path in part.collision_mesh_paths
-    }
+    live = {obj.object_id for obj in graph.objects}
     for stale in out.glob(f"*{COLLISION_SUFFIX}"):
-        if stale.name not in written:
+        # `{object_id}_{part_id}_{index:02d}.collision.obj`; object ids carry no
+        # underscore-delimited suffix of their own, so the owner is the prefix
+        # before the part and index this stage appended.
+        owner = stale.name[: -len(COLLISION_SUFFIX)].rsplit("_", 2)[0]
+        if owner not in live:
             stale.unlink()
 
 

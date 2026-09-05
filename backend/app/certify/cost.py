@@ -43,7 +43,7 @@ def run(
 
     from app.export import mjcf
 
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
+    model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
 

@@ -345,6 +345,26 @@ class ReconstructionResult(BaseModel):
 # --- stage 5: reconcile -------------------------------------------------------
 
 
+class DepthObservation(BaseModel):
+    """What stage 2 measured about one object, kept so stage 6 can be re-run.
+
+    Six numbers, and they are the entire depth input to the solve: `_residuals`
+    scores the object's world AABB centre and extent against these and reads
+    nothing else from the depth map. Storing them rather than the 4 MB map is what
+    makes a re-solve stateless — a user edit can be committed and the scene
+    re-fitted without the depth `.npy` and every mask PNG still being on disk under
+    the key that produced them.
+
+    In the **recentred world frame**, not the camera frame `reconcile.observe`
+    reports. Applying `world_offset_m` once here means a re-solve does not have to
+    know whether it has been applied already, which is the sort of thing that is
+    silently wrong in one direction.
+    """
+
+    centre_m: Vec3
+    extent_m: Vec3
+
+
 class SceneObject(Pinnable):
     """One object in the canonical, gravity-aligned scene graph.
 
@@ -365,6 +385,14 @@ class SceneObject(Pinnable):
 
     supported_by: str | None = Field(
         default=None, description="object_id of the supporting body, or None for the floor."
+    )
+
+    observation: DepthObservation | None = Field(
+        default=None,
+        description="What depth measured for this object, carried so stage 6 can be "
+        "re-run without the depth map. Absent on hand-authored scenes, which have no "
+        "measurement behind them — the solver then has no `E_depth` term for the "
+        "object and relies on contact alone.",
     )
 
     degradation_reason: str | None = Field(
@@ -581,8 +609,37 @@ class ScaleAnchor(BaseModel):
 
 
 class SolveDiagnostics(BaseModel):
+    """What stage 6's block-coordinate loop did, and how far it got.
+
+    `converged` and `settled` are separate because they answer different questions
+    and one used to mask the other. A single flag reported `False` on a scene where
+    the optimiser was converging cleanly — 199, 40, 16, 7 mm per round — purely
+    because one floor lamp fell over, which reads as "the solve failed" when the
+    solve was working and the *reconstruction* was unstable.
+    """
+
     iterations: int = 0
-    converged: bool = False
+    converged: bool = Field(
+        default=False,
+        description="The optimiser reached a fixed point: a round moved every "
+        "variable by less than the round tolerance. About the solve, not the scene.",
+    )
+    settled: bool = Field(
+        default=False,
+        description="The solved pose is already the equilibrium — settling the scene "
+        "under gravity moves nothing by more than the round tolerance.\n\n"
+        "Stricter than 'the objects stop moving', and deliberately. A toppled lamp "
+        "lying still has stopped moving: measured, it is motionless from t=3.5 s and "
+        "844 mm from where the solver put it. That scene is *stable*; it is not "
+        "*correct*. Simulation-ready means the MJCF loads and nothing jumps, which "
+        "is the same thing the stability axis asks with `max_com_displacement_m`.",
+    )
+    max_settle_drift_m: float = Field(
+        default=0.0,
+        description="Furthest any object moves between its solved and settled pose. "
+        "The scene-wide maximum, so one unstable object dominates it — which is why "
+        "it is reported as a number rather than only as the flag above.",
+    )
     residual_by_term: dict[str, float] = Field(
         default_factory=dict, description="Final E_depth, E_prior, E_sil, E_supp, E_pen."
     )
@@ -637,6 +694,16 @@ class StabilityCheck(BaseModel):
         description="Measured at t=0. Once the solver starts pushing bodies apart the "
         "overlap is gone and the reconstruction error that caused it is unobservable."
     )
+    penetration_against: str | None = Field(
+        default=None,
+        description="What the deepest overlap is with: another object's id, or "
+        '`"floor"`. None when there is no overlap.\n\n'
+        "Recorded because the depth alone does not say what to do about it. Sunk "
+        "into the ground and interpenetrating a neighbour are different "
+        "reconstruction errors with different fixes, and a reader told only "
+        '"overlaps another object" will go looking through the object list for a '
+        "collision that is with the floor.",
+    )
     passed: bool
 
 
@@ -676,6 +743,21 @@ class Certificate(BaseModel):
         "sub-millimetre contacts on surfaces flush by design, and a zero-tolerance "
         "check would fail every well-modelled object. Results are reported against "
         "this value so their sensitivity to it is visible.",
+    )
+    com_displacement_tolerance_m: float = Field(
+        default=0.01,
+        description="From Settings.max_com_displacement_m, recorded for the same "
+        "reason as the penetration tolerance.",
+    )
+    orientation_drift_tolerance_deg: float = Field(
+        default=2.0,
+        description="From Settings.max_orientation_drift_deg.\n\n"
+        "All three thresholds are on the certificate so a reader can say *which* "
+        "criterion a check failed on. Without them a client has to invent its own "
+        "cutoffs, and one did: a floor lamp failing on 295 mm of displacement was "
+        "also reported as overlapping its neighbour, because the client tested "
+        "penetration against zero and the lamp had 4.7 micrometres of contact "
+        "noise — rendered, after rounding, as 'overlaps another object by 0 mm'.",
     )
 
     @property

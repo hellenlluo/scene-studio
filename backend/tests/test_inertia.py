@@ -25,6 +25,7 @@ import trimesh
 
 from app.certify import inertial as inertial_axis
 from app.export import mjcf
+from app.export.gltf import node_transform
 from app.geometry import quat_to_matrix
 from app.pipeline import inertia
 from app.pipeline.base import PipelineContext
@@ -200,7 +201,10 @@ def test_mass_survives_the_round_trip_through_mjcf(ctx, tmp_path):
     result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
     ours = result.objects[0].parts[0].inertial
 
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(result))
+    # `load_model`, not `from_xml_string`: the MJCF names meshes by bare filename
+    # and the bytes are supplied through a virtual filesystem, so that the browser
+    # can compile the identical string. Compiling it directly cannot find them.
+    model = mjcf.load_model(result)
     assert float(model.body_mass[1]) == pytest.approx(ours.mass_kg, rel=1e-6)
 
 
@@ -270,7 +274,7 @@ def test_proxies_scale_with_the_object_in_mjcf(ctx, tmp_path):
     # it invariant to MuJoCo ordering its assets by name, which is not the order
     # `collision_mesh_paths` is in. What survives both is the size, which is the
     # claim.
-    model = mujoco.MjModel.from_xml_string(xml)
+    model = mjcf.load_model(result)
     mesh_geoms = model.geom_aabb[model.geom_type == mujoco.mjtGeom.mjGEOM_MESH]
     compiled = sorted(sorted(half * 2.0 for half in geom[3:]) for geom in mesh_geoms)
     stored = sorted(
@@ -282,6 +286,28 @@ def test_proxies_scale_with_the_object_in_mjcf(ctx, tmp_path):
     # axis-aligned; MuJoCo also keeps vertices in float32. Neither is close to the
     # factor of three a missing `scale` attribute would cost.
     assert np.ravel(compiled).tolist() == pytest.approx(np.ravel(stored).tolist(), rel=1e-3)
+
+
+def test_a_shrinking_decomposition_keeps_its_older_pieces(ctx, tmp_path):
+    """Files for an object still in the scene survive, even ones this run did not write.
+
+    The artifact cache stores this stage's output keyed on its inputs, and that
+    output names collision files by absolute path — so the files are part of the
+    artifact. Deleting a higher-indexed piece because today's decomposition came
+    out smaller leaves a cache *hit* pointing at geometry that is gone, which
+    surfaces two stages later as MuJoCo failing to open a file. Observed on
+    `obj_548_711_body_15.collision.obj`.
+    """
+    part = _mesh_part(tmp_path, _l_shape())
+    graph = SceneGraph(objects=[_object(part)])
+    inertia.run(ctx, graph)
+
+    # A piece from an imagined earlier, larger decomposition of the same object.
+    older = ctx.workdir() / f"obj_body_99{inertia.COLLISION_SUFFIX}"
+    older.write_text("an earlier run's piece")
+    inertia.run(ctx, graph)
+
+    assert older.exists(), "the cache may still name this file"
 
 
 def test_stale_proxies_are_pruned(ctx, tmp_path):
@@ -332,6 +358,166 @@ def test_every_material_has_a_density():
     """A missing entry would be a KeyError inside a background job, on whichever
     photo first contains a stone worktop."""
     assert set(inertia.MATERIAL_DENSITY_KG_M3) == set(Material)
+
+
+# --- closing what hole-filling cannot ------------------------------------------
+
+
+def test_a_hole_too_complex_for_fill_holes_is_still_closed(ctx, tmp_path):
+    """`trimesh.repair.fill_holes` spans simple planar loops and little else.
+
+    The real case: a reconstructed rug with exactly one hexagonal hole — six
+    boundary edges out of 9598 faces — which `fill_holes` left open, so its volume
+    and therefore its mass were untrustworthy and the inertial axis failed it.
+    """
+    sphere = trimesh.creation.icosphere(subdivisions=3, radius=0.2)
+    # Punch out a patch big enough that the boundary is neither planar nor small.
+    keep = np.ones(len(sphere.faces), dtype=bool)
+    keep[np.argsort(sphere.triangles_center[:, 2])[-14:]] = False
+    sphere.update_faces(keep)
+    assert not sphere.is_watertight, "the fixture has to actually be open"
+
+    part = _mesh_part(tmp_path, sphere, "holed")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+    got = result.objects[0].parts[0].inertial
+
+    assert got.watertight, "closed, so the volume is trustworthy"
+    assert got.volume_m3 == pytest.approx(
+        float(trimesh.creation.icosphere(subdivisions=3, radius=0.2).volume), rel=0.05
+    )
+
+
+def test_an_already_closed_mesh_is_left_alone(ctx, tmp_path):
+    """Repair runs only when hole-filling did not already succeed, so an object
+    that never needed it cannot be altered by it."""
+    box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
+    part = _mesh_part(tmp_path, box, "box")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+
+    assert result.objects[0].parts[0].inertial.volume_m3 == pytest.approx(
+        float(box.volume), rel=1e-9
+    )
+
+
+def test_an_unrepairable_surface_is_still_reported_untrusted(ctx, tmp_path):
+    """Best effort, not a guarantee. Two triangles are not a solid, and saying so
+    is the point — the inertial axis treats an untrustworthy mass as a failure."""
+    flat = trimesh.Trimesh(
+        vertices=[[0, 0, 0], [0.2, 0, 0], [0.2, 0.2, 0], [0, 0.2, 0]],
+        faces=[[0, 1, 2], [0, 2, 3]],
+        process=False,
+    )
+    part = _mesh_part(tmp_path, flat, "flat")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+
+    assert not result.objects[0].parts[0].inertial.watertight
+    assert not inertial_axis.run(result)[0].passed
+
+
+# --- a base that can actually stand -------------------------------------------
+
+
+def _wobbly_disc(tilt_mm: float = 1.6) -> trimesh.Trimesh:
+    """A disc whose underside is a fraction of a millimetre out of flat.
+
+    The reconstructed-lamp case in miniature: level to a hundredth of a degree,
+    and still resting on one point because its lowest vertices do not share a
+    plane.
+    """
+    disc = trimesh.creation.cylinder(radius=0.13, height=0.05, sections=48)
+    bottom = disc.vertices[:, 2] < disc.vertices[:, 2].min() + 1e-9
+    # Tip the underside only, leaving the rest of the shape alone.
+    disc.vertices[bottom, 2] -= (disc.vertices[bottom, 0] / 0.13) * (tilt_mm / 2000.0)
+    return disc
+
+
+def _on_floor(mesh: trimesh.Trimesh) -> int:
+    """How many vertices sit within 10 microns of the lowest one."""
+    z = mesh.vertices[:, 2]
+    return int((z < z.min() + 1e-5).sum())
+
+
+def test_a_wobbly_base_is_brought_onto_one_plane(ctx, tmp_path):
+    """One contact point cannot hold a body up; three non-collinear ones can.
+
+    Measured on the reconstruction this comes from: a floor lamp with a support gap
+    of 0.1 mm and a base level to 0.01 degrees still fell 331 mm, because exactly
+    one vertex of its decomposition reached the floor.
+    """
+    part = _mesh_part(tmp_path, _wobbly_disc(), "disc")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+
+    pieces = [
+        trimesh.load(path, force="mesh") for path in result.objects[0].parts[0].collision_mesh_paths
+    ]
+    assert pieces
+    assert _on_floor(trimesh.util.concatenate(pieces)) > 4, "the base rests on a plane, not a point"
+
+
+def test_flattening_stays_within_the_penetration_tolerance(ctx, tmp_path):
+    """The band is `max_penetration_m`, so nothing moves further than the amount
+    the certificate already declares immaterial."""
+    part = _mesh_part(tmp_path, _wobbly_disc(), "disc")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+
+    original = trimesh.load(part.visual_mesh_path, force="mesh")
+    pieces = trimesh.util.concatenate(
+        [trimesh.load(p, force="mesh") for p in result.objects[0].parts[0].collision_mesh_paths]
+    )
+    dropped = original.vertices[:, 2].min() - pieces.vertices[:, 2].min()
+    assert abs(dropped) <= ctx.settings.max_penetration_m + 1e-6
+
+
+def test_a_flat_base_is_left_alone(ctx, tmp_path):
+    """A box already rests on a plane; flattening must not invent a change."""
+    box = trimesh.creation.box(extents=(0.4, 0.4, 0.2))
+    part = _mesh_part(tmp_path, box, "box")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+
+    pieces = trimesh.util.concatenate(
+        [trimesh.load(p, force="mesh") for p in result.objects[0].parts[0].collision_mesh_paths]
+    )
+    assert pieces.bounds[0][2] == pytest.approx(box.bounds[0][2], abs=1e-6)
+
+
+def test_it_flattens_along_the_object_s_own_down_direction(ctx, tmp_path):
+    """What has to be flat is the face that meets the floor, and which face that is
+    depends on the object's orientation — not on the mesh's own -Z.
+
+    So: wobble the disc's *top* face and turn the object upside down. The wobbled
+    face is now the one on the ground. Code that flattened the mesh's lowest
+    vertices would smooth the face pointing at the ceiling and leave this object
+    balanced on a point exactly as before.
+    """
+    disc = trimesh.creation.cylinder(radius=0.13, height=0.05, sections=48)
+    top = disc.vertices[:, 2] > disc.vertices[:, 2].max() - 1e-9
+    disc.vertices[top, 2] += (disc.vertices[top, 0] / 0.13) * 0.0008
+    part = _mesh_part(tmp_path, disc, "disc")
+
+    # 180 degrees about X: the wobbled +Z face now points down in world.
+    flipped = _object(part).model_copy(update={"orientation": (0.0, 1.0, 0.0, 0.0)})
+    result = inertia.run(ctx, SceneGraph(objects=[flipped]))
+
+    posed = result.objects[0]
+    transform = node_transform(posed, posed.parts[0])
+    pieces = []
+    for path in posed.parts[0].collision_mesh_paths:
+        piece = trimesh.load(path, force="mesh")
+        piece.apply_transform(transform)
+        pieces.append(piece)
+    world = trimesh.util.concatenate(pieces)
+    assert _on_floor(world) > 4, "the face against the floor is the one that got flattened"
+
+
+def test_flattening_does_not_touch_mass(ctx, tmp_path):
+    """Volume comes from the visual mesh, so collision geometry cannot move it."""
+    part = _mesh_part(tmp_path, _wobbly_disc(), "disc")
+    result = inertia.run(ctx, SceneGraph(objects=[_object(part)]))
+    original = trimesh.load(part.visual_mesh_path, force="mesh")
+
+    assert result.objects[0].parts[0].inertial.volume_m3 == pytest.approx(
+        float(original.volume), rel=1e-6
+    )
 
 
 # --- recompute ----------------------------------------------------------------

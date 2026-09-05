@@ -17,6 +17,7 @@ import { storageUrl } from "../api/client";
 import * as THREE from "three";
 
 import { VIEW_DIRECTION, VIEW_DISTANCE, defaultAim, frame } from "./aim";
+import type { Pose } from "../certify/physics.worker";
 import { SceneModel } from "./SceneModel";
 import { useSceneStore } from "./store";
 
@@ -180,12 +181,15 @@ class GeometryBoundary extends Component<
 
 interface Props {
   envelope: SceneEnvelope;
+  /** Live physics poses, or an empty map when physics is off. */
+  poses?: Map<string, Pose>;
 }
 
-export function Viewer({ envelope }: Props) {
+export function Viewer({ envelope, poses }: Props) {
   const select = useSceneStore((s) => s.select);
   const mode = useSceneStore((s) => s.mode);
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
+  const recordEdit = useSceneStore((s) => s.recordEdit);
   const gltfPath = envelope.spec.exports?.gltf_path;
   const sceneId = envelope.spec.scene_id;
 
@@ -226,6 +230,38 @@ export function Viewer({ envelope }: Props) {
     [groups],
   );
 
+  // Read the pose back off the group the gizmo just moved. The group *is* the
+  // object frame — position and orientation in scene coordinates — so this is a
+  // straight read rather than an inverse of whatever the gizmo did.
+  const recordDrag = useCallback(
+    (group: THREE.Object3D) => {
+      const objectId = group.name.replace(/^object:/, "");
+      const base = envelope.spec.graph.objects.find(
+        (o) => o.object_id === objectId,
+      );
+      if (!base) return;
+      recordEdit({
+        object_id: objectId,
+        position_m: [group.position.x, group.position.y, group.position.z],
+        // three.js is x,y,z,w; the schema and MuJoCo are w,x,y,z.
+        orientation: [
+          group.quaternion.w,
+          group.quaternion.x,
+          group.quaternion.y,
+          group.quaternion.z,
+        ],
+        // The group starts at unit scale, so what the gizmo left there is a factor
+        // on the object's own. Averaged because `SceneObject.scale` is a single
+        // number by design — anisotropic scale breaks inertia — and a one-axis drag
+        // would otherwise be read as a uniform one.
+        scale:
+          base.scale *
+          ((group.scale.x + group.scale.y + group.scale.z) / 3),
+      });
+    },
+    [envelope.spec.graph.objects, recordEdit],
+  );
+
   if (!gltfPath) {
     return (
       <div className="viewer-empty">this scene has no exported geometry</div>
@@ -236,6 +272,8 @@ export function Viewer({ envelope }: Props) {
   // without a version the browser serves the pre-repair copy and the fix looks like it
   // did nothing.
   const url = storageUrl(gltfPath, envelope.updated_at);
+  // The same version identifies the geometry, so it is what the subtree is keyed on.
+  const geometryKey = `${sceneId}@${envelope.updated_at}`;
 
   return (
     <Canvas shadows camera={CAMERA} onPointerMissed={() => select(null)}>
@@ -276,15 +314,24 @@ export function Viewer({ envelope }: Props) {
         {/* Keyed, so a scene switch tears the old subtree down and falls back to
             nothing. An unkeyed boundary keeps the previous children mounted while the
             next scene's glTF resolves, which put one frame of the *old* geometry on
-            screen under the *new* scene's certificate. */}
-        <Suspense key={sceneId} fallback={null}>
+            screen under the *new* scene's certificate.
+
+            Keyed on `updated_at` as well as the scene id, because a commit or a
+            repair rewrites `scene.glb` *in place* — same scene, same URL but for the
+            cache-busting version, new geometry. Keyed on the id alone the component
+            is never remounted, and its memoised model, its cloned nodes and the
+            groups the gizmo has been dragging all survive the change. Committing a
+            drag then left the object rendered where it had been dropped while the
+            server had already moved it back. */}
+        <Suspense key={geometryKey} fallback={null}>
           <SceneModel
-            key={sceneId}
+            key={geometryKey}
             url={url}
             certificate={envelope.spec.certificate}
             graph={envelope.spec.graph}
             onObjects={onObjects}
             visible={ready}
+            poses={poses}
           />
         </Suspense>
       </GeometryBoundary>
@@ -302,7 +349,15 @@ export function Viewer({ envelope }: Props) {
           handle is held — without it the camera and the object move together and
           neither goes where it was asked. */}
       {selected && (
-        <TransformControls object={selected} mode={mode} size={0.8} />
+        <TransformControls
+          object={selected}
+          mode={mode}
+          size={0.8}
+          // On mouse-up, not on every frame of the drag: an edit is a statement,
+          // and recording one per pointer move would make "how many edits to
+          // certification" meaningless as a number.
+          onMouseUp={() => recordDrag(selected)}
+        />
       )}
     </Canvas>
   );

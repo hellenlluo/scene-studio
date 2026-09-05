@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SceneEnvelope, SceneObject } from "../api/client";
 import { api } from "../api/client";
 import { useSceneStore } from "../scene/store";
+import type { Physics } from "./usePhysics";
 import {
   AXES,
   failingObjectIds,
@@ -13,6 +14,7 @@ import {
 
 interface Props {
   envelope: SceneEnvelope;
+  physics: Physics;
 }
 
 /** `CATEGORIES` in the backend is a closed, snake_case vocabulary — "side_table",
@@ -59,7 +61,7 @@ function objectDisplayNames(objects: SceneObject[]): Map<string, string> {
   return names;
 }
 
-export function CertificatePanel({ envelope }: Props) {
+export function CertificatePanel({ envelope, physics }: Props) {
   const certificate = envelope.spec.certificate;
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
   const select = useSceneStore((s) => s.select);
@@ -69,6 +71,30 @@ export function CertificatePanel({ envelope }: Props) {
   const unchecked = uncheckedAxes(certificate);
   const failing = failingObjectIds(certificate);
   const displayNames = objectDisplayNames(envelope.spec.graph.objects);
+  const diagnostics = envelope.spec.diagnostics;
+
+  const edits = useSceneStore((s) => s.edits);
+  const clearEdits = useSceneStore((s) => s.clearEdits);
+  const dirty = edits.size > 0;
+
+  const commit = useMutation({
+    mutationFn: () =>
+      api.editScene(envelope.spec.scene_id, {
+        objects: [...edits.values()],
+        anchors: [],
+        // Re-solve from the edit rather than merely storing it, so the objects
+        // resting on what moved follow it. The server does not repair — that stays
+        // a separate, deliberate action.
+        resolve: true,
+      }),
+    onSuccess: (scene) => {
+      queryClient.setQueryData(["scene", scene.spec.scene_id], scene);
+      queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      // Only after the server has them. Clearing on click would lose the edits if
+      // the request failed, and the user would have no way to know what to redo.
+      clearEdits();
+    },
+  });
 
   const repair = useMutation({
     mutationFn: () => api.repairScene(envelope.spec.scene_id),
@@ -112,8 +138,14 @@ export function CertificatePanel({ envelope }: Props) {
         ))}
       </ul>
 
-      <p className={`verdict verdict--${certified ? "pass" : "fail"}`}>
-        {certified ? "CERTIFIED" : "NOT CERTIFIED"}
+      {/* Grey, not red. An uncommitted edit does not mean the scene failed — it
+          means the certificate on screen describes a scene that is no longer the
+          one being shown. Confidently wrong and not-yet-checked are different
+          things and the design keeps them in separate channels. */}
+      <p
+        className={`verdict verdict--${dirty ? "stale" : certified ? "pass" : "fail"}`}
+      >
+        {dirty ? "UNCOMMITTED EDITS" : certified ? "CERTIFIED" : "NOT CERTIFIED"}
       </p>
       {unchecked.length > 0 && (
         <p className="note">
@@ -129,6 +161,79 @@ export function CertificatePanel({ envelope }: Props) {
           {certificate.cost.budget_ms} ms
         </p>
       )}
+
+      {dirty && (
+        <div className="commit">
+          <button
+            type="button"
+            className="commit-button"
+            onClick={() => commit.mutate()}
+            disabled={commit.isPending}
+          >
+            {commit.isPending
+              ? "committing…"
+              : `commit ${edits.size} edit${edits.size === 1 ? "" : "s"}`}
+          </button>
+          <button type="button" className="commit-discard" onClick={clearEdits}>
+            discard
+          </button>
+          <p className="note">
+            the certificate below describes the scene before these edits
+          </p>
+          {commit.error && (
+            <p className="note note--error">{String(commit.error)}</p>
+          )}
+        </div>
+      )}
+
+      {/* The same MuJoCo the backend certifies with — `@mujoco/mujoco` 3.11.0
+          against the server's 3.11.0, compiling the MJCF the server built. Off
+          until asked: the 9.7 MB module should not be downloaded by someone who
+          only wants to look, and the solved pose *is* the answer, so running
+          gravity unprompted would show the scene falling and hide it. Nothing here
+          writes to the scene — Reset asks the compiled pose again. */}
+      <div className="physics">
+        <button
+          type="button"
+          className="physics-toggle"
+          disabled={physics.state === "loading"}
+          onClick={physics.state === "idle" ? physics.enable : physics.disable}
+        >
+          {physics.state === "loading"
+            ? "loading MuJoCo…"
+            : physics.state === "running"
+              ? "◼ stop physics"
+              : "▶ run physics"}
+        </button>
+        {physics.state === "running" && (
+          <>
+            <button type="button" className="physics-reset" onClick={physics.reset}>
+              ↺ reset
+            </button>
+            <span className="note">t = {physics.time.toFixed(2)} s</span>
+          </>
+        )}
+        {physics.error && <p className="reasons-degraded">{physics.error}</p>}
+      </div>
+
+      {/* Two flags, not one. `converged` is about the optimiser reaching a fixed
+          point; `settled` is about the solved pose already being the equilibrium.
+          A scene where one object topples reports converged-but-not-settled, which
+          is a very different thing from a solve that failed. */}
+      <p className="note">
+        solve: {diagnostics.iterations} iterations,{" "}
+        <span className={diagnostics.converged ? "flag-ok" : "flag-bad"}>
+          {diagnostics.converged ? "converged" : "not converged"}
+        </span>
+        {", "}
+        <span className={diagnostics.settled ? "flag-ok" : "flag-bad"}>
+          {diagnostics.settled ? "settled" : "not settled"}
+        </span>
+        {!diagnostics.settled && diagnostics.max_settle_drift_m > 0 && (
+          <> — worst object moves {(diagnostics.max_settle_drift_m * 1000).toFixed(0)} mm
+          under gravity</>
+        )}
+      </p>
 
       <h3>Objects</h3>
       <ul className="objects">
@@ -169,7 +274,7 @@ export function CertificatePanel({ envelope }: Props) {
               )}
               {selected && (
                 <ul className="reasons">
-                  {reasonsFor(object.object_id, certificate).map((reason) => (
+                  {reasonsFor(object.object_id, certificate, displayNames).map((reason) => (
                     <li key={reason}>{reason}</li>
                   ))}
                   {!failed && <li className="reasons-ok">passes every axis</li>}
@@ -180,16 +285,22 @@ export function CertificatePanel({ envelope }: Props) {
         })}
       </ul>
 
-      {!certified && (
-        <button
-          type="button"
-          className="repair"
-          onClick={() => repair.mutate()}
-          disabled={repair.isPending}
-        >
-          {repair.isPending ? "Repairing…" : "Repair"}
-        </button>
-      )}
+      {/* Rendered even when there is nothing to repair, disabled rather than hidden.
+          Hiding it made a passing scene look like a missing feature — the same trap
+          the physics button falls into, where the success case is indistinguishable
+          from the thing being broken. */}
+      <button
+        type="button"
+        className="repair"
+        onClick={() => repair.mutate()}
+        disabled={repair.isPending || certified}
+      >
+        {repair.isPending
+          ? "Repairing…"
+          : certified
+            ? "nothing to repair"
+            : "Repair"}
+      </button>
 
       {repair.data && (
         <div className="note">

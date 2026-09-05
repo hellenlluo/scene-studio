@@ -61,25 +61,35 @@ def _object_geoms(model, graph: SceneGraph) -> dict[str, list[int]]:
 
 def _initial_penetration(
     mujoco, model, data, own: list[int], foreign: list[int], distmax: float
-) -> float:
-    """Deepest overlap between this object and anything that is not part of it.
+) -> tuple[float, str | None]:
+    """Deepest overlap between this object and anything that is not part of it,
+    and what that overlap is with.
 
     Contacts *within* an object are excluded: the rigidly-attached pieces of one
     reconstruction touch by construction, and counting that would fail every
     well-modelled object. What matters is an object buried in the floor, or two
-    objects occupying the same space because their depths disagreed.
+    objects occupying the same space because their depths disagreed — and those
+    two are different errors, so the counterpart is returned alongside the depth.
     """
     worst = 0.0
+    against: int | None = None
     for a in own:
         for b in foreign:
-            worst = max(worst, -mujoco.mj_geomDistance(model, data, a, b, distmax, None))
-    return max(0.0, worst)
+            depth = -mujoco.mj_geomDistance(model, data, a, b, distmax, None)
+            if depth > worst:
+                worst, against = depth, b
+    if worst <= 0.0 or against is None:
+        return 0.0, None
+    # Geom names are `{object_id}/{part_id}/{index}`; the floor geom is named
+    # "floor" and belongs to no object.
+    name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, against) or "floor"
+    return worst, name.split("/")[0]
 
 
 def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
     import mujoco
 
-    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
+    model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
 
     roots = {
@@ -93,7 +103,7 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
 
     # Everything at t=0, captured before the solver has had a chance to move
     # anything or to hide the overlap it is about to resolve.
-    penetration: dict[str, float] = {}
+    penetration: dict[str, tuple[float, str | None]] = {}
     start_com: dict[str, np.ndarray] = {}
     start_quat: dict[str, np.ndarray] = {}
     for obj in graph.objects:
@@ -118,7 +128,7 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
         body = roots[obj.object_id]
         displacement = float(np.linalg.norm(data.subtree_com[body] - start_com[obj.object_id]))
         drift = _quat_angle_deg(start_quat[obj.object_id], data.xquat[body])
-        overlap = penetration[obj.object_id]
+        overlap, against = penetration[obj.object_id]
 
         checks.append(
             StabilityCheck(
@@ -126,6 +136,7 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
                 com_displacement_m=displacement,
                 orientation_drift_deg=drift,
                 initial_penetration_m=overlap,
+                penetration_against=against,
                 passed=(
                     displacement <= settings.max_com_displacement_m
                     and drift <= settings.max_orientation_drift_deg

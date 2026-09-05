@@ -226,6 +226,103 @@ def observe(ctx: PipelineContext, segments: SegmentResult, depth: DepthResult):
     return observations, basis, floor_z
 
 
+def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
+    """Replace claimed support relations the geometry contradicts.
+
+    `ObjectLabel.support_parent` is a VLM guess made two stages before any 3D
+    exists — stage 3 looks at a flat photo with numbered outlines and judges "is
+    the sofa on the rug" from one viewpoint. `schemas.ObjectLabel` has always said
+    reconcile overrides that with measured contact once geometry exists; this is
+    that override, and until it existed the guess went straight through to the
+    solver.
+
+    It matters because the guess is not stable. Across consecutive runs of the same
+    photo the same model called a sofa floor-supported and then rug-supported; on
+    the run where it said rug, the sofa's footprint centre was 0.19 m clear of the
+    rug's near edge, the scale axis failed `base_inside_parent`, and the solver
+    spent the round driving the sofa down onto a surface it was not over.
+
+    **The nearest measurable surface wins; the claim survives only where nothing is
+    measurable.** An earlier version kept the guess whenever it was merely viable,
+    which sounds conservative and is too weak to be useful: an object stacked on a
+    high shelf but labelled with the low one stayed on the low one, because half a
+    metre of gap is "viable" under the threshold below. Since the schema promises
+    *measured* contact, the measurement decides whenever there is one.
+
+    The fallback matters as much as the rule. Nothing has been solved at this point,
+    so this reads the raw reconstruction, and an object badly enough placed that no
+    surface sits under its centre is a geometry failure rather than a labelling one
+    — refuting a claim is evidence, failing to confirm one is not. In that case the
+    guess is left alone and the solver still has a contact to close.
+
+    A parent has to satisfy two things, matching what `certify.scale` will later
+    check rather than inventing a second rule:
+
+    - the child's footprint *centre* over the parent's surface, which is the
+      toppling condition; a corner overhanging a neighbour is not resting on it
+    - a gap within `max_snap_m`, the same distance repair already refuses to move
+      an object, beyond which the relation is more likely wrong than the position
+    """
+    if not graph.objects:
+        return graph
+
+    from app.pipeline import support
+
+    ids = {obj.object_id for obj in graph.objects}
+    heights = support.build(graph, settings, candidates=ids)
+    boxes = {obj.object_id: world_aabb(obj) for obj in graph.objects}
+
+    def surface_under(child: SceneObject, parent: SceneObject) -> float | None:
+        low, high = boxes[child.object_id]
+        return heights.under(parent, low, high, centre_only=True)
+
+    def base_of(obj: SceneObject) -> float:
+        measured = heights.base_of(obj)
+        return measured if measured is not None else float(boxes[obj.object_id][0][2])
+
+    objects = []
+    for obj in graph.objects:
+        base = base_of(obj)
+
+        # Every candidate parent, plus the floor as `None`, scored by how far the
+        # object is from resting on it.
+        scored: list[tuple[float, str | None]] = [(abs(base - graph.floor_height_m), None)]
+        for other in graph.objects:
+            if other.object_id == obj.object_id:
+                continue
+            # Only something whose own base is lower can hold this up. Cheap, and it
+            # makes the resulting graph acyclic by construction rather than by a
+            # cycle check afterwards.
+            if base_of(other) >= base:
+                continue
+            surface = surface_under(obj, other)
+            if surface is not None:
+                scored.append((abs(base - surface), other.object_id))
+
+        claimed = obj.supported_by
+        viable = [entry for entry in scored if entry[0] <= settings.max_snap_m]
+
+        if not viable:
+            # Nothing is convincingly under this object, including the floor. The
+            # claim is unverifiable rather than refuted, and replacing a considered
+            # guess with a worse one is not an improvement — this is the badly
+            # reconstructed object, not the badly labelled one.
+            objects.append(obj)
+            continue
+
+        chosen = min(viable)[1]
+        if chosen != claimed:
+            log.info(
+                "%s: support %s -> %s (claimed contact not supported by geometry)",
+                obj.object_id,
+                claimed,
+                chosen,
+            )
+        objects.append(obj.model_copy(update={"supported_by": chosen}))
+
+    return graph.model_copy(update={"objects": objects})
+
+
 def _placeholder_label(object_id: str) -> ObjectLabel:
     """A label for an object the VLM never described.
 
@@ -306,7 +403,9 @@ def run(
     # lets solve get back to the camera coordinates its depth observations live in.
     graph = recentre(SceneGraph(objects=objects, camera=_camera_pose(basis, floor_z, depth)))
     log.info("recentred by %s", np.round(graph.world_offset_m, 3))
-    return graph
+    # After recentring, so the geometry it measures is the geometry everything
+    # downstream will use.
+    return resolve_supports(graph, ctx.settings)
 
 
 def _ground(objects: list[SceneObject]) -> list[SceneObject]:

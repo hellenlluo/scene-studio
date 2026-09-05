@@ -156,7 +156,17 @@ def _resolve_penetration(graph: SceneGraph, cert: Certificate, settings: Setting
     with it and turns one repair into several. Among equals, move the lighter one,
     on the grounds that a mug is more likely to be misplaced than a counter.
     """
-    failing = {c.object_id for c in cert.stability if c.initial_penetration_m > 0.0}
+    # Against the tolerance, not against zero. `max_penetration_m` is non-zero
+    # precisely because a resting contact has a little overlap in it — measured, a
+    # floor lamp standing on the floor reports 4.7 micrometres, six orders of
+    # magnitude under the 5 mm support tolerance. Triggering on any positive value
+    # proposes a separation for objects that are simply touching, which then fails
+    # to improve anything and spends a round of the repair budget finding that out.
+    # The violation score below already compares against the tolerance; only the
+    # candidate selection did not.
+    failing = {
+        c.object_id for c in cert.stability if c.initial_penetration_m > settings.max_penetration_m
+    }
     if not failing:
         return
 

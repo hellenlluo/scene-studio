@@ -6,8 +6,11 @@ this project and wrong *silently* — nothing raises, the scene just quietly sto
 meaning what it says.
 """
 
+from pathlib import Path
+
 import mujoco
 import pytest
+import trimesh
 
 from app.export import mjcf
 from app.schemas import (
@@ -114,3 +117,83 @@ def test_write_mjcf_matches_build_xml(tmp_path):
     graph = scenes.kitchen()
     path = mjcf.write_mjcf(graph, tmp_path)
     assert path.read_text() == mjcf.build_xml(graph)
+
+
+# --- one MJCF, two consumers ---------------------------------------------------
+
+
+def _proxy_object(tmp_path, object_id="obj"):
+    """An object whose collision geometry is two real files on disk."""
+    paths = []
+    for index in range(2):
+        mesh = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+        mesh.apply_translation((index * 0.3, 0.0, 0.0))
+        path = tmp_path / f"{object_id}_body_{index:02d}.collision.obj"
+        path.write_text(mesh.export(file_type="obj"))
+        paths.append(str(path))
+    return SceneObject(
+        object_id=object_id,
+        label=ObjectLabel(object_id=object_id, category="other"),
+        frame=AssetFrame(source="test"),
+        parts=[
+            PartGeometry(
+                part_id="body", name="body", dims_m=(0.5, 0.2, 0.2), collision_mesh_paths=paths
+            )
+        ],
+        position_m=(0.0, 0.0, 0.1),
+    )
+
+
+def test_mesh_assets_are_named_by_bare_filename(tmp_path):
+    """Not by path. A browser cannot open an absolute path, and the frontend runs
+    the same engine over the same MJCF — that is what makes it authoritative rather
+    than an approximation of the server."""
+    graph = SceneGraph(objects=[_proxy_object(tmp_path)])
+    xml = mjcf.build_xml(graph)
+
+    assert 'file="obj_body_00.collision.obj"' in xml
+    assert str(tmp_path) not in xml, "no absolute path may survive into the MJCF"
+
+
+def test_mesh_files_lists_what_the_xml_names(tmp_path):
+    graph = SceneGraph(objects=[_proxy_object(tmp_path)])
+    files = mjcf.mesh_files(graph)
+
+    assert set(files) == {"obj_body_00.collision.obj", "obj_body_01.collision.obj"}
+    for name, path in files.items():
+        assert Path(path).name == name
+        assert Path(path).exists()
+
+
+def test_load_model_compiles_with_the_meshes_supplied(tmp_path):
+    graph = SceneGraph(objects=[_proxy_object(tmp_path)])
+    model = mjcf.load_model(graph)
+
+    assert model.nmesh == 2
+    assert model.ngeom >= 3  # two pieces plus the floor
+
+
+def test_the_xml_no_longer_depends_on_where_the_files_are(tmp_path, monkeypatch):
+    """The portability this buys, asserted rather than assumed.
+
+    Compiling the string directly is what a consumer without the virtual filesystem
+    would do, and it now fails — which is the point: the bytes travel with the
+    model instead of being looked up on a filesystem the consumer may not share.
+    """
+    graph = SceneGraph(objects=[_proxy_object(tmp_path)])
+    xml = mjcf.build_xml(graph)
+
+    monkeypatch.chdir(tmp_path.parent)
+    with pytest.raises(ValueError):
+        mujoco.MjModel.from_xml_string(xml)
+    assert mjcf.load_model(graph).nmesh == 2, "and it compiles when they are supplied"
+
+
+def test_a_missing_proxy_costs_its_geom_not_the_scene(tmp_path):
+    """Degrade, do not raise. An asset that went astray is a worse scene, not no
+    scene — the same rule stage 4 and the glTF exporter both follow."""
+    obj = _proxy_object(tmp_path)
+    Path(obj.parts[0].collision_mesh_paths[0]).unlink()
+
+    model = mjcf.load_model(SceneGraph(objects=[obj]))
+    assert model.nmesh == 1, "the surviving piece is still there"

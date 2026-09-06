@@ -9,6 +9,7 @@ import {
   failingObjectIds,
   isCertified,
   reasonsFor,
+  supportOf,
   uncheckedAxes,
 } from "./status";
 
@@ -203,8 +204,15 @@ export function CertificatePanel({ envelope, physics }: Props) {
             ? "loading MuJoCo…"
             : physics.state === "running"
               ? "◼ stop physics"
-              : "▶ run physics"}
+              : physics.state === "diverged"
+                ? "◼ stopped — unstable"
+                : "▶ run physics"}
         </button>
+        {physics.state === "diverged" && (
+          <button type="button" className="physics-reset" onClick={physics.reset}>
+            ↺ restart
+          </button>
+        )}
         {physics.state === "running" && (
           <>
             <button type="button" className="physics-reset" onClick={physics.reset}>
@@ -257,6 +265,15 @@ export function CertificatePanel({ envelope, physics }: Props) {
                   {object.degradation_reason && (
                     <span className="badge">box</span>
                   )}
+                </span>
+                {/* The support relation, on every row rather than only the open one.
+                    It is the thing most of the scale reasons are *about* — "base is
+                    not over its support" and "floating above its support" both name
+                    a parent the reader otherwise has to guess at — and it is what
+                    makes a wrong one (a book resting on a cup) visible at a glance
+                    instead of only in the graph. */}
+                <span className="object-support">
+                  on {supportOf(object, displayNames)}
                 </span>
               </button>
               {/* The id is the filename the meshes are written under, so it is what

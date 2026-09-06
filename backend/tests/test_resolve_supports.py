@@ -142,3 +142,30 @@ def test_the_result_is_acyclic(tmp_path, settings):
 def test_an_empty_graph_is_returned_unchanged(settings):
     graph = SceneGraph(objects=[])
     assert resolve_supports(graph, settings).objects == []
+
+
+def test_a_near_tie_keeps_the_label(tmp_path, settings):
+    """Nearest-surface alone is wrong when two surfaces are nearly the same height.
+
+    The observed failure on `room2.png`: the labeller correctly put a book on the
+    side table, and the nearest surface under the book's centre was the *saucer*
+    beside it, 10 mm higher. A book resting on a saucer is not a thing, and nothing
+    downstream can tell — the gap closes either way, so the error is invisible until
+    someone reads the graph.
+
+    Geometry has to beat the label by `support_claim_margin_m` before it overrules
+    it. Ten millimetres is disagreement between two surfaces at the same contact,
+    not evidence of a different one.
+    """
+    table = _slab(tmp_path, (1.0, 1.0, 0.05), "table")
+    saucer = _slab(tmp_path, (0.15, 0.15, 0.01), "saucer")
+    book = _slab(tmp_path, (0.3, 0.2, 0.03), "book")
+    graph = SceneGraph(
+        objects=[
+            _object("table", [table], (1.0, 1.0, 0.05), (0.0, 0.0, 0.5)),
+            _object("saucer", [saucer], (0.15, 0.15, 0.01), (0.0, 0.0, 0.530)),
+            # Base at 0.540: 15 mm over the tabletop, 5 mm over the saucer.
+            _object("book", [book], (0.3, 0.2, 0.03), (0.0, 0.0, 0.555), supported_by="table"),
+        ]
+    )
+    assert _supports(resolve_supports(graph, settings))["book"] == "table"

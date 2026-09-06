@@ -446,3 +446,147 @@ def test_the_measurement_is_carried_for_a_later_re_solve(ctx, inputs, tmp_path, 
     # 1e-5 relative, asserted at 1e-3.
     again = solve.run(ctx, solved, None, None, SolveWeights()).graph
     assert again.get("table").scale == pytest.approx(solved.get("table").scale, rel=1e-3)
+
+
+# --- containment ---------------------------------------------------------------
+
+
+def _offset_xy(graph, child_id) -> float:
+    """How far the child's footprint centre sits outside its parent's, in metres.
+
+    Measured the way `certify.scale` measures `base_inside_parent`, so a test here
+    and a failing check there are talking about the same quantity.
+    """
+    import numpy as np
+
+    from app.geometry import world_aabb
+
+    child = graph.get(child_id)
+    low, high = world_aabb(child)
+    parent_low, parent_high = world_aabb(graph.get(child.supported_by))
+    centre = (low[:2] + high[:2]) / 2.0
+    outside = np.maximum(0.0, np.maximum(parent_low[:2] - centre, centre - parent_high[:2]))
+    return float(np.hypot(*outside))
+
+
+def test_depth_cannot_slide_an_object_off_its_support(ctx, inputs, tmp_path, monkeypatch):
+    """The failure this term exists for.
+
+    `E_supp` is signed but vertical: it closes the gap to whatever an object rests
+    on and is indifferent to *where*. So a depth measurement half a metre to the
+    side used to be satisfiable at zero cost to contact — the book keeps a perfect
+    0 mm gap while hovering over the floor beside the table. Measured on room2,
+    four objects left the side table that way, by up to 1225 mm.
+    """
+    table = obj("table", box_part(tmp_path, (1.0, 1.0, 0.5), "table"), (0.0, 0.0, 0.25))
+    book = obj(
+        "book",
+        box_part(tmp_path, (0.2, 0.2, 0.05), "book"),
+        (0.0, 0.0, 0.525),
+        supported_by="table",
+    )
+    # Depth is wrong by 0.8 m laterally, and is the only thing pulling sideways.
+    observed(
+        monkeypatch,
+        table=((0.0, 0.0, 0.25), (1.0, 1.0, 0.5)),
+        book=((0.8, 0.0, 0.525), (0.2, 0.2, 0.05)),
+    )
+
+    # Explicit, because the term ships off — see `SolveWeights.containment`.
+    weights = SolveWeights(containment=60.0)
+    result = solve.run(ctx, SceneGraph(objects=[table, book]), *inputs, weights)
+
+    assert _offset_xy(result.graph, "book") < 0.001, "the book stayed over the table"
+    assert abs(support_gap(result.graph, "book")) < 0.005, "and is still resting on it"
+
+
+def test_containment_costs_nothing_when_the_object_is_already_over_its_support(
+    ctx, inputs, tmp_path, monkeypatch
+):
+    """One-sided, like penetration. A correctly placed object must not be dragged
+    toward its parent's centre, or the term would quietly recentre every scene."""
+    table = obj("table", box_part(tmp_path, (1.0, 1.0, 0.5), "table"), (0.0, 0.0, 0.25))
+    # Well inside the tabletop, but off-centre — where depth says it is.
+    book = obj(
+        "book",
+        box_part(tmp_path, (0.2, 0.2, 0.05), "book"),
+        (0.3, 0.0, 0.525),
+        supported_by="table",
+    )
+    observed(
+        monkeypatch,
+        table=((0.0, 0.0, 0.25), (1.0, 1.0, 0.5)),
+        book=((0.3, 0.0, 0.525), (0.2, 0.2, 0.05)),
+    )
+
+    weights = SolveWeights(containment=60.0)
+    result = solve.run(ctx, SceneGraph(objects=[table, book]), *inputs, weights)
+
+    assert result.graph.get("book").position_m[0] == pytest.approx(0.3, abs=0.02)
+
+
+def test_a_frozen_scale_survives_a_second_round(ctx, inputs, tmp_path, monkeypatch):
+    """`_bounds` freezes an unobserved object's scale to a 1e-12-wide interval, and
+    the warm start round-trips through `exp` then `log`, which is not exactly the
+    identity. Measured: 1e-12 came back as 1.0000889e-12 and `least_squares` refused
+    the round outright. Clipping the warm start is what keeps a solve from failing
+    over one ulp."""
+    table = obj("table", box_part(tmp_path, (1.0, 1.0, 0.5), "table"), (0.0, 0.0, 0.25))
+    mug = obj(
+        "mug", box_part(tmp_path, (0.1, 0.1, 0.1), "mug"), (0.0, 0.0, 1.40), supported_by="table"
+    )
+    observed(monkeypatch, table=((0.0, 0.0, 0.25), (1.0, 1.0, 0.5)))
+
+    result = solve.run(ctx, SceneGraph(objects=[table, mug]), *inputs, SolveWeights())
+
+    assert result.graph.get("mug").scale == pytest.approx(1.0, abs=1e-6), "scale stayed frozen"
+
+
+def test_an_object_buried_in_its_own_support_is_pushed_out(ctx, inputs, tmp_path, monkeypatch):
+    """`E_supp` measures the vertical gap under the footprint, which is not the same
+    quantity as mesh overlap — a shelf-shaped parent can report a satisfied gap while
+    the child is centimetres inside it. `penetration.pairs` drops support contacts, so
+    before this term nothing in the objective could see that at all.
+
+    Measured on room2: a 0.77 kg vase sat 15.8 mm inside the bookshelf it rests on,
+    MuJoCo ejected it at 15.9 m/s, and the scene diverged after 0.446 s.
+    """
+    table = obj("table", box_part(tmp_path, (1.0, 1.0, 0.5), "table"), (0.0, 0.0, 0.25))
+    vase = obj(
+        "vase",
+        box_part(tmp_path, (0.1, 0.1, 0.2), "vase"),
+        (0.0, 0.0, 0.44),  # 60 mm of its 200 mm height is inside the tabletop
+        supported_by="table",
+    )
+    observed(
+        monkeypatch,
+        table=((0.0, 0.0, 0.25), (1.0, 1.0, 0.5)),
+        vase=((0.0, 0.0, 0.44), (0.1, 0.1, 0.2)),  # depth agrees with the bad pose
+    )
+
+    result = solve.run(ctx, SceneGraph(objects=[table, vase]), *inputs, SolveWeights())
+
+    assert support_gap(result.graph, "vase") > -0.005, "no longer buried in the tabletop"
+
+
+def test_a_resting_contact_is_not_penalised_twice(ctx, inputs, tmp_path, monkeypatch):
+    """One-sided past the tolerance, so a correct contact costs nothing. Scoring a
+    resting contact here as well as in `E_supp` would have the solver fighting itself,
+    which is why `penetration.pairs` excludes support pairs in the first place."""
+    table = obj("table", box_part(tmp_path, (1.0, 1.0, 0.5), "table"), (0.0, 0.0, 0.25))
+    vase = obj(
+        "vase",
+        box_part(tmp_path, (0.1, 0.1, 0.2), "vase"),
+        (0.0, 0.0, 0.60),  # resting exactly on the tabletop
+        supported_by="table",
+    )
+    observed(
+        monkeypatch,
+        table=((0.0, 0.0, 0.25), (1.0, 1.0, 0.5)),
+        vase=((0.0, 0.0, 0.60), (0.1, 0.1, 0.2)),
+    )
+
+    result = solve.run(ctx, SceneGraph(objects=[table, vase]), *inputs, SolveWeights())
+
+    assert abs(support_gap(result.graph, "vase")) < 0.005, "still resting, not pushed off"
+    assert result.graph.get("vase").position_m[2] == pytest.approx(0.60, abs=0.01)

@@ -64,7 +64,8 @@ function SceneStudio() {
             )}
             {scenes.data?.length === 0 && (
               <div className="viewer-empty">
-                no scenes yet — run <code>uv run python -m app.seed</code>
+                no scenes yet — run{" "}
+                <code>uv run python -m app.seed &lt;image&gt;</code>
               </div>
             )}
             {scene.data && (

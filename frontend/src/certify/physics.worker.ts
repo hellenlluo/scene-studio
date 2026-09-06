@@ -48,6 +48,18 @@ export interface Pose {
 export type Event =
   | { type: 'ready'; bodies: number; meshes: number }
   | { type: 'poses'; time: number; poses: Pose[] }
+  /**
+   * The scene diverged and MuJoCo threw the state away.
+   *
+   * Separate from `error` because nothing failed in the usual sense: the model
+   * compiled, the assets loaded, and the engine did exactly what it documents.
+   * `mj_step` checks `qacc` for Nan/Inf/huge and calls `mj_resetData` when it
+   * finds one — silently, to a console the user cannot see. Left undetected the
+   * caller keeps stepping a scene that restarts every time it blows up, which on
+   * `room2.png` was every 0.446 s, forever, and reads as a hang rather than as
+   * the stability failure the certificate already reports.
+   */
+  | { type: 'unstable'; time: number; message: string }
   | { type: 'error'; message: string }
 
 let mujoco: MainModule | null = null
@@ -56,6 +68,8 @@ let data: MjData | null = null
 /** Root body id per object, in the order poses are reported. */
 let roots: { objectId: string; bodyId: number }[] = []
 let running = false
+/** Simulated time at the previous report, to catch MuJoCo resetting itself. */
+let lastTime = 0
 
 async function boot(message: StartMessage) {
   // One module for the worker's lifetime. Re-initialising for every scene would
@@ -126,6 +140,25 @@ function advance(seconds: number) {
   // straight after it are not the ones just computed. The backend's `_settle` calls
   // `mj_forward` for the same reason.
   mujoco.mj_forward(model, data)
+
+  // Time running backwards is the reset: `mj_resetData` puts it back to zero, and
+  // it is the one symptom visible from here — the warning itself goes to a console
+  // this worker does not own.
+  const now = Number(data.time)
+  if (now < lastTime) {
+    running = false
+    postMessage({
+      type: 'unstable',
+      time: lastTime,
+      message:
+        `the scene diverged after ${lastTime.toFixed(2)} s and MuJoCo reset it. ` +
+        `This is the stability axis failing, not a viewer bug — an object starts ` +
+        `inside what it rests on, and the contact force needed to separate them is ` +
+        `large enough to break the solver.`,
+    } satisfies Event)
+    return
+  }
+  lastTime = now
   report()
 }
 
@@ -134,6 +167,7 @@ self.onmessage = async (event: MessageEvent<Command>) => {
     const command = event.data
     if (command.type === 'start') {
       running = true
+      lastTime = 0
       await boot(command)
       // Report the compiled pose before stepping, so the caller can confirm the
       // browser agrees with the server about where things are *before* gravity.
@@ -149,6 +183,8 @@ self.onmessage = async (event: MessageEvent<Command>) => {
     } else if (command.type === 'reset') {
       mujoco.mj_resetData(model, data)
       mujoco.mj_forward(model, data)
+      lastTime = 0
+      running = true
       report()
     } else if (command.type === 'stop') {
       running = false

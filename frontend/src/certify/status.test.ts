@@ -13,6 +13,7 @@ import {
   reasonsFor,
   sanitizeNodeName,
   statusFor,
+  supportOf,
   uncheckedAxes,
 } from './status'
 
@@ -27,6 +28,8 @@ function certificate(overrides: Partial<Certificate> = {}): Certificate {
     inertial: [],
     cost: null,
     penetration_tolerance_m: 0.002,
+    support_gap_tolerance_m: 0.005,
+    prior_deviation_tolerance_sigma: 3,
     ...overrides,
   } as Certificate
 }
@@ -135,6 +138,44 @@ describe('statusFor', () => {
 })
 
 describe('reasonsFor', () => {
+  it('does not report a gap that is inside the tolerance', () => {
+    // The regression this exists for. An object over-hanging its support fails on
+    // containment while its height is fine, and every scale reason used to be
+    // emitted on `|gap| > 0`. Measured on room2: seven of nine failures had gaps
+    // under 3 mm against a 5 mm bar and were all reported as floating.
+    const cert = certificate({
+      scale: [scaleCheck('mug', { support_gap_m: 0.0009, base_inside_parent: false, passed: false })],
+    })
+    const reasons = reasonsFor('mug', cert)
+
+    expect(reasons).toEqual(['base is not over its support'])
+    expect(reasons.some((r) => r.includes('floating'))).toBe(false)
+  })
+
+  it('quotes the gap tolerance, not the penetration tolerance', () => {
+    // These are different numbers — 5 mm and 2 mm — and reaching for the wrong one
+    // reported a measurement as failing against a bar it passed.
+    const cert = certificate({
+      scale: [scaleCheck('mug', { support_gap_m: 0.05, passed: false })],
+    })
+
+    expect(reasonsFor('mug', cert)[0]).toContain('tolerance ±5.0 mm')
+  })
+
+  it('takes the sigma tolerance from the certificate rather than hardcoding it', () => {
+    const loose = certificate({
+      prior_deviation_tolerance_sigma: 6,
+      scale: [scaleCheck('mug', { deviation_sigma: [4, 0, 0], passed: false })],
+    })
+    expect(reasonsFor('mug', loose).some((r) => r.includes('σ'))).toBe(false)
+
+    const tight = certificate({
+      prior_deviation_tolerance_sigma: 2,
+      scale: [scaleCheck('mug', { deviation_sigma: [4, 0, 0], passed: false })],
+    })
+    expect(reasonsFor('mug', tight)[0]).toBe('4.0σ from its class prior (tolerance 2σ)')
+  })
+
   it('distinguishes floating from sunk by the sign of the gap', () => {
     const sunk = certificate({
       scale: [scaleCheck('mug', { support_gap_m: -0.05, passed: false })],
@@ -272,5 +313,25 @@ describe('nodeToObjectId', () => {
     // A miss shows up as an untinted object, which is visible. Prefix-matching
     // would instead colour the wrong one, which is not.
     expect(nodeToObjectId(graph).get('somethingelse')).toBeUndefined()
+  })
+})
+
+
+describe('supportOf', () => {
+  it('names the floor rather than reporting nothing', () => {
+    // `supported_by: null` is the most common answer in any scene, not missing data.
+    expect(supportOf({ supported_by: null })).toBe('the floor')
+  })
+
+  it('uses the display name of the parent', () => {
+    const names = new Map([['obj_1', 'side table']])
+    expect(supportOf({ supported_by: 'obj_1' }, names)).toBe('side table')
+  })
+
+  it('falls back to the raw id when the parent is not in the graph', () => {
+    // A dangling parent is a reconcile bug, and `certify.scale` reports the object
+    // as a floor contact instead — so printing the id here is the only place it
+    // becomes findable.
+    expect(supportOf({ supported_by: 'obj_ghost' }, new Map())).toBe('obj_ghost')
   })
 })

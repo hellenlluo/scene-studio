@@ -17,6 +17,17 @@ model reading them off a photo is guessing; a guess dressed as a prior is worse 
 no prior at all, because `E_prior` weights by `1/sigma^2` and an invented sigma is an
 invented weight. Absolute scale comes from metric depth instead.
 
+**Naming a drape with its support does not work, and was tried.** A throw over an
+armchair splits the chair: SAM 3 gives each pixel to one instance, so the chair comes
+back in two disconnected components with the throw in the gap, and SAM 3D reconstructs
+a chair with one arm sheared off. Telling this prompt to name the pair as one object
+does not fix it — measured on `room2.png`, the armchair mask was byte-identical with
+and without "throw blanket" in the list (157,755 px, same bbox), because SAM 3 segments
+the concept "armchair" from armchair *pixels* regardless of what else was asked for.
+All the rule achieved was deleting the throw, after which SAM 3D hallucinated plain
+upholstery over the gap. The fix belongs after segmentation, by unioning an occluding
+mask into the one it splits — not here.
+
 **Set-of-mark, not crops.** The second pass sees the whole photo with each mask
 outlined and numbered, rather than isolated cutouts. A crop of a mug and a crop of a
 bucket are the same picture; what separates them is the room around them.
@@ -36,8 +47,8 @@ import logging
 from pydantic import BaseModel, Field
 
 from app.pipeline import vlm
-from app.pipeline.base import PipelineContext
-from app.schemas import LabelResult, Material, ObjectLabel, SegmentResult
+from app.pipeline.base import PipelineContext, cache_key, load_cached, store_cached
+from app.schemas import LabelResult, Material, ObjectLabel, SegmentResult, StageName
 
 __all__ = ["LabelResult", "inventory", "run"]
 
@@ -131,6 +142,11 @@ if it stands on the floor. Judge actual contact, not proximity: a lamp beside a 
 table is on the floor, a lamp on top of it is not.
 4. `notes` — one short phrase on what you saw, for debugging.
 
+Each number is drawn at the middle of its own outlined region, which for a concave \
+shape can land on something else — a covering over the object, or a smaller object \
+in front of it. Judge each one by the whole shape its outline encloses, not by \
+whatever its number happens to sit on.
+
 Do not estimate dimensions, volume, weight or density. Those are measured elsewhere \
 from depth and geometry; your job is to pick the right bucket, not to measure.
 
@@ -164,6 +180,18 @@ def inventory(ctx: PipelineContext) -> list[str]:
     in the second pass where it keys a density lookup — not in the first, where it
     would silently make anything unlisted invisible to the whole pipeline.
     """
+    # Cached on the photo alone, because this is a VLM call and not deterministic:
+    # two runs on the same photo returned "area rug" and "rug". Its output is the
+    # cache key for `segment`, which is paid — so uncached, wording drift on a
+    # single noun was enough to miss the segmentation cache and re-buy identical
+    # masks on every run. Keyed off LABEL with no inputs, which cannot collide with
+    # the labelling pass below; that one keys on (segments,).
+    key = cache_key(ctx, StageName.LABEL)
+    if (cached := load_cached(ctx, key, _Inventory)) is not None:
+        nouns = ", ".join(cached.objects)
+        log.info("inventory: %d nouns (cached) — %s", len(cached.objects), nouns)
+        return cached.objects
+
     nouns = vlm.parse(
         ctx, "label", [ctx.image_path.read_bytes()], INVENTORY_PROMPT, _Inventory
     ).objects
@@ -171,6 +199,7 @@ def inventory(ctx: PipelineContext) -> list[str]:
     # concept from one mention.
     unique = list(dict.fromkeys(n.strip().lower() for n in nouns if n.strip()))
     log.info("inventory: %d nouns — %s", len(unique), ", ".join(unique))
+    store_cached(ctx, key, _Inventory(objects=unique))
     return unique
 
 

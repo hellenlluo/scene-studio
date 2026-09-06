@@ -10,7 +10,7 @@
  * disagreeing is precisely the bug that would make the viewer's red channel lie —
  * showing an object as fine when the backend has failed it, or the reverse.
  */
-import type { AxisStatus, Certificate, SceneSpec } from "../api/client";
+import type { AxisStatus, Certificate, SceneObject, SceneSpec } from "../api/client";
 
 export const AXES = ["scale", "stability", "inertial", "cost"] as const;
 export type AxisName = (typeof AXES)[number];
@@ -78,6 +78,27 @@ export function statusFor(
 }
 
 /** Human-readable reasons one object failed, in physical units. */
+/**
+ * What an object rests on, as a phrase.
+ *
+ * `supported_by: null` means the floor rather than "unknown" — the backend has no
+ * separate floor object, so an unqualified null would read as missing data when it
+ * is in fact the most common answer in any scene.
+ *
+ * Falls back to the raw id when the parent is not in the graph. That combination is
+ * a reconcile bug rather than a display case, and printing the dangling id is what
+ * makes it findable; `certify.scale` silently reports the same object as a floor
+ * contact, so the viewer is the only place it shows.
+ */
+export function supportOf(
+  object: Pick<SceneObject, 'supported_by'>,
+  names?: Map<string, string>,
+): string {
+  const parent = object.supported_by
+  if (!parent) return 'the floor'
+  return names?.get(parent) ?? parent
+}
+
 export function reasonsFor(
   objectId: string,
   certificate: Certificate,
@@ -96,21 +117,33 @@ export function reasonsFor(
   const penetrationLimit = certificate.penetration_tolerance_m ?? 0.002;
   const displacementLimit = certificate.com_displacement_tolerance_m ?? 0.01;
   const driftLimit = certificate.orientation_drift_tolerance_deg ?? 2;
-  const tolerance = mm(penetrationLimit);
+  // Each of these is the threshold the *server* judged that measurement against.
+  // Reusing one for another is how a passing measurement gets reported as a
+  // failure: every scale check used to be tested against `penetrationLimit`,
+  // which is 2 mm, while the server passes the gap at 5 mm — so an object that
+  // failed on containment alone was also reported as "floating above its support
+  // by 0.9 mm (tolerance ±2 mm)", a number it was comfortably inside.
+  const gapLimit = certificate.support_gap_tolerance_m ?? 0.005;
+  const sigmaLimit = certificate.prior_deviation_tolerance_sigma ?? 3;
   const reasons: string[] = [];
 
   for (const check of certificate.scale ?? []) {
     if (check.object_id !== objectId || check.passed) continue;
-    if (Math.abs(check.support_gap_m ?? 0) > 0) {
-      const gap = check.support_gap_m ?? 0;
+    const gap = check.support_gap_m ?? 0;
+    // Against the tolerance, not against zero — a check can fail on containment
+    // while its gap is fine, and listing the gap anyway sends the reader after a
+    // height error that is not there.
+    if (Math.abs(gap) > gapLimit) {
       // The sign is the diagnosis: floating and buried are different errors.
       const direction = gap > 0 ? "floating above" : "sunk into";
       reasons.push(
-        `${direction} its support by ${mm(Math.abs(gap))} (tolerance ±${tolerance})`,
+        `${direction} its support by ${mm(Math.abs(gap))} (tolerance ±${mm(gapLimit)})`,
       );
     }
     const worst = Math.max(...check.deviation_sigma.map(Math.abs));
-    if (worst > 3) reasons.push(`${worst.toFixed(1)}σ from its class prior`);
+    if (worst > sigmaLimit) {
+      reasons.push(`${worst.toFixed(1)}σ from its class prior (tolerance ${sigmaLimit}σ)`);
+    }
     if (!check.base_inside_parent) reasons.push("base is not over its support");
   }
 
@@ -137,7 +170,7 @@ export function reasonsFor(
             ? "sinks into the floor"
             : `overlaps ${names?.get(against) ?? against}`;
       reasons.push(
-        `${what} by ${mm(check.initial_penetration_m)} at rest (tolerance ${tolerance})`,
+        `${what} by ${mm(check.initial_penetration_m)} at rest (tolerance ${mm(penetrationLimit)})`,
       );
     }
     if (check.com_displacement_m > displacementLimit) {

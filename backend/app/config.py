@@ -54,8 +54,25 @@ class Settings(BaseSettings):
     )
 
     # --- stage 4: reconstruction ---
+    max_occluder_depth_step_m: float = Field(
+        default=0.05,
+        description="How far apart two surfaces may be at their shared boundary and "
+        "still count as touching, in `occlusion`.\n\n"
+        "This is the check that separates a covering from a foreground object. Both "
+        "sever the mask behind them and both can be labelled as resting on it, so "
+        "neither geometry nor the support relation can tell them apart: a small plant "
+        "standing on a bookshelf shelf is `supported_by` that bookshelf and splits it "
+        "exactly as a throw splits an armchair. What differs is depth. A throw lies "
+        "*on* the chair, so the two are continuous across the seam; a plant stands "
+        "clear of the shelves behind it, so depth steps by the standoff distance.\n\n"
+        "5 cm is generous for contact — it has to absorb the thickness of a folded "
+        "textile and depth noise at a silhouette edge, where every model is least "
+        "reliable — and still far below any real standoff, which is tens of "
+        "centimetres.",
+    )
+
     max_mesh_faces: int = Field(
-        default=40_000,
+        default=120_000,
         description="Decimation target for reconstructed meshes. SAM 3D returns "
         "hundreds of thousands of faces — one side table came back at 1.1M faces "
         "and 22 MB, which is unusable in a browser and slow in MuJoCo.\n\n"
@@ -78,6 +95,18 @@ class Settings(BaseSettings):
         "415k faces untextured arrive at 7k and 12k. On room.jpg, 8 of 9 objects fit "
         "under 20k and the ninth needed 31k; 40k covers the observed spread with room "
         "to spare, at about 1.2 MB per object.\n\n"
+        "Raised again from 40k to 120k after `room2.png`, where it stopped being a "
+        "fidelity setting and started breaking physics. One object — an armchair — "
+        "crossed 40k and was decimated, and as `_load_glb` records, decimation opens "
+        "the surface: the mesh arrived watertight and came out with 3209 boundary "
+        "loops. CoACD then produced no hull for the lower 27.9% of it, so the chair "
+        "had no legs to stand on, fell 589 mm, took the pillow resting on it down "
+        "992 mm, and left the scene unable to settle. Every other object in either "
+        "scene has full collision coverage to its base. A cap that silently deletes "
+        "an object\'s contact surface is worse than a large file.\n\n"
+        "The proper fix is to decompose collision from the *undecimated* mesh, so "
+        "visual budget and physical correctness stop being the same number. This "
+        "raise buys headroom rather than fixing that coupling.\n\n"
         "This will need revisiting when a mesh collision tier exists, at which point "
         "the max_penetration_m argument above binds again.",
     )
@@ -189,6 +218,23 @@ class Settings(BaseSettings):
     # its own and cannot oscillate. This only binds when repairs cascade — fixing
     # one object creating a failure in another — and each round costs one
     # re-certification per proposal, roughly 20 ms on a small scene.
+    support_claim_margin_m: float = Field(
+        default=0.05,
+        description="How much closer a geometric candidate must be than the labelled "
+        "one before `reconcile` overrules the label about what an object rests on.\n\n"
+        "Stage 3 sees the photo and answers semantically; this stage sees geometry "
+        "and answers by nearest surface. Nearest-surface alone is wrong on a near "
+        "tie, because heights collide: measured on `room2.png`, the VLM correctly "
+        "put a book on the side table and reconcile moved it onto the *teacup* "
+        "beside it, whose rim happens to sit at the book's base height. A book "
+        "resting on a teacup is not a thing.\n\n"
+        "So geometry vetoes rather than replaces — it overrules the label only when "
+        "clearly better, and a label that geometry merely fails to confirm is kept. "
+        "5 cm is well above the disagreement between two surfaces that are really "
+        "the same contact and well below a genuine mistake, where the labelled "
+        "parent is usually the wrong height entirely.",
+    )
+
     max_repair_rounds: int = 10
 
     # Beyond this, the support *relation* is more likely wrong than the position,

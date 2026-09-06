@@ -310,14 +310,31 @@ def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
             objects.append(obj)
             continue
 
-        chosen = min(viable)[1]
-        if chosen != claimed:
-            log.info(
-                "%s: support %s -> %s (claimed contact not supported by geometry)",
-                obj.object_id,
-                claimed,
-                chosen,
+        best_score, best = min(viable)
+
+        # Geometry vetoes the label; it does not replace it. Nearest-surface alone
+        # is wrong on a near tie, because heights collide — a teacup's rim sits at
+        # the same height as the base of the book beside it, and "nearest" then
+        # reads a book as resting on a teacup. The label was produced by a model
+        # looking at the photo and is the better answer whenever geometry does not
+        # clearly contradict it, so it survives unless something beats it by more
+        # than `support_claim_margin_m`.
+        claim_score = next((score for score, who in viable if who == claimed), None)
+        if claim_score is not None and claim_score <= best_score + settings.support_claim_margin_m:
+            chosen = claimed
+        else:
+            chosen = best
+            # Two different reasons to overrule, and the log has to say which: a
+            # claim no surface confirms is a labelling error, a claim beaten by a
+            # nearer surface is a placement one, and they are fixed in different
+            # stages.
+            why = (
+                "no measurable contact with the claim"
+                if claim_score is None
+                else f"{1000 * (claim_score - best_score):.0f} mm nearer, "
+                f"past the {1000 * settings.support_claim_margin_m:.0f} mm margin"
             )
+            log.info("%s: support %s -> %s (%s)", obj.object_id, claimed, chosen, why)
         objects.append(obj.model_copy(update={"supported_by": chosen}))
 
     return graph.model_copy(update={"objects": objects})

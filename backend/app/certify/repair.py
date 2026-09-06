@@ -64,25 +64,56 @@ log = logging.getLogger(__name__)
 MIN_IMPROVEMENT = 1e-6
 
 
-def _violation(cert: Certificate, settings: Settings) -> float:
-    """How far past its thresholds the whole scene sits, in units of threshold.
+def _affected(graph: SceneGraph, target_id: str) -> set[str]:
+    """The target and everything transitively resting on it.
+
+    The set a repair can *physically* reach. Moving a table moves the mug on it and
+    the tray under the mug; it does not move a lamp across the room, whatever a
+    whole-scene re-simulation says about the lamp afterwards.
+    """
+    reached = {target_id}
+    frontier = [target_id]
+    while frontier:
+        parent = frontier.pop()
+        for obj in graph.objects:
+            if obj.supported_by == parent and obj.object_id not in reached:
+                reached.add(obj.object_id)
+                frontier.append(obj.object_id)
+    return reached
+
+
+def _violation(cert: Certificate, settings: Settings, ids: set[str] | None = None) -> float:
+    """How far past its thresholds the scene sits, in units of threshold.
 
     Normalising by the threshold is what makes the axes comparable: 3 mm of
     penetration and 4 degrees of drift are not otherwise on the same scale, and a
     repair has to be judged against the total rather than one favoured number.
     Zero means everything passes.
+
+    `ids` narrows it to a subset, which is how an action is scored — see `run`.
+    None is the whole scene, which is what the caller wants for reporting.
     """
+
+    def counted(object_id: str) -> bool:
+        return ids is None or object_id in ids
+
     total = 0.0
     for check in cert.scale:
+        if not counted(check.object_id):
+            continue
         total += max(0.0, abs(check.support_gap_m) / settings.max_support_gap_m - 1.0)
         worst_sigma = max(abs(d) for d in check.deviation_sigma)
         total += max(0.0, worst_sigma / settings.max_prior_deviation_sigma - 1.0)
         total += 0.0 if check.base_inside_parent else 1.0
     for check in cert.stability:
+        if not counted(check.object_id):
+            continue
         total += max(0.0, check.com_displacement_m / settings.max_com_displacement_m - 1.0)
         total += max(0.0, check.orientation_drift_deg / settings.max_orientation_drift_deg - 1.0)
         total += max(0.0, check.initial_penetration_m / settings.max_penetration_m - 1.0)
     for check in cert.inertial:
+        if not counted(check.object_id):
+            continue
         total += 0.0 if check.passed else 1.0
     return total
 
@@ -278,12 +309,28 @@ def run(ctx: PipelineContext, graph: SceneGraph, certificate: Certificate) -> Re
 
         for strategy in _STRATEGIES:
             for action in strategy(current_graph, current_cert, settings):
+                # Scored on what the action can reach, not on the whole scene.
+                #
+                # The scene-wide total sounds fairer and is not, because it is not
+                # noise that defeats it — `certify` is deterministic to the digit —
+                # but sensitivity. Until a scene settles its objects are mid-fall,
+                # and perturbing any body redirects every trajectory. Measured on
+                # `room2.png`: snapping the armchair 16.7 mm onto the rug it rests
+                # on improved the armchair from 23.3 mm of COM drift to 9.8 mm, and
+                # was rejected because a book on the far side of the room went from
+                # 565 mm to 645 mm. The two are not in contact. Judging the action
+                # on the armchair and its dependents keeps the part of that
+                # comparison which means something.
+                affected = _affected(current_graph, action.target_id)
+                before = _violation(current_cert, settings, affected)
+
                 trial = _apply(current_graph, action)
                 trial_cert = certify.run(ctx, trial)
-                trial_score = _violation(trial_cert, settings)
+                trial_score = _violation(trial_cert, settings, affected)
 
-                if trial_score < score - MIN_IMPROVEMENT:
-                    current_graph, current_cert, score = trial, trial_cert, trial_score
+                if trial_score < before - MIN_IMPROVEMENT:
+                    current_graph, current_cert = trial, trial_cert
+                    score = _violation(trial_cert, settings)
                     action.improved = True
                     accepted_this_round = True
                 else:

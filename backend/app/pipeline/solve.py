@@ -146,6 +146,12 @@ class _Penetrations:
     def __init__(self, graph: SceneGraph, settings):
         self._depths = penetration.build(graph, settings)
         self.pairs = penetration.pairs(graph)
+        # Support contacts, which `pairs` deliberately leaves out. Kept separately
+        # because they are scored differently: see the residual.
+        self.support_pairs = [
+            (obj.object_id, obj.supported_by) for obj in graph.objects if obj.supported_by
+        ]
+        self.tolerance = settings.max_penetration_m
 
     def between(self, first, second) -> float:
         if first is None or second is None:
@@ -199,6 +205,24 @@ def _residuals(
         base = measured_base if measured_base is not None else float(low[2])
         out.append(weights.support * (base - support_top))
 
+        # Containment: the lateral counterpart of the term above. `support` closes
+        # the vertical gap and is indifferent to *where* the contact is, so without
+        # this an object satisfies it just as well hovering the correct 0 mm over
+        # empty air a metre to the left of the table it is recorded as resting on.
+        # One-sided, so an object already over its support contributes nothing.
+        # Guarded on the weight, not multiplied by it. A zero weight has to add no
+        # residuals at all rather than zero-valued ones: `least_squares` reaches a
+        # different local minimum when the residual vector merely changes length,
+        # and on the kitchen fixture that flipped an assertion about where a
+        # re-solved mug lands. "Off" must mean the objective is unchanged.
+        if weights.containment and obj.supported_by and obj.supported_by in boxes:
+            parent_low, parent_high = boxes[obj.supported_by]
+            centre_xy = centre[:2]
+            outside = np.maximum(
+                0.0, np.maximum(parent_low[:2] - centre_xy, centre_xy - parent_high[:2])
+            )
+            out += list(weights.containment * outside)
+
         if settled is not None and obj.object_id in settled:
             out += list(PHYSICS_WEIGHT * (np.asarray(obj.position_m) - settled[obj.object_id]))
 
@@ -213,6 +237,21 @@ def _residuals(
     for first, second in penetrations.pairs:
         depth = penetrations.between(graph.get(first), graph.get(second))
         out.append(weights.penetration * depth)
+
+    # Support contacts, scored only past the tolerance. `penetration.pairs` drops
+    # them because the support term is already driving those two surfaces together
+    # and penalising the same contact twice has the solver fighting itself — true of
+    # a *resting* contact, and the reason this is one-sided rather than a pair added
+    # back to the list above. It is not true of an object buried in its own support,
+    # which nothing was scoring at all: `E_supp` measures the vertical gap under the
+    # footprint, which is a different quantity from mesh overlap and can read as
+    # satisfied while the meshes are centimetres into each other. Measured on
+    # `room2.png`, a 0.77 kg vase sat 15.8 mm inside the bookshelf it rests on, and
+    # the solver had no term that could see it — `certify.stability` did, and MuJoCo
+    # ejected it at 15.9 m/s and diverged after 0.446 s.
+    for child, parent in penetrations.support_pairs:
+        depth = penetrations.between(graph.get(child), graph.get(parent))
+        out.append(weights.penetration * max(0.0, depth - penetrations.tolerance))
 
     # An anchor is E_prior with sigma -> 0: a hard pull on one axis.
     for anchor in anchors:
@@ -345,7 +384,15 @@ def run(
         # parent's parts wants a fresh one. Cheap — a few thousand rays per support.
         supports = support.build(working, ctx.settings)
         penetrations = _Penetrations(working, ctx.settings)
-        before = _pack(working)
+        # Clipped, because a round trip through the bounds can land just outside
+        # them. `_bounds` freezes an unobserved object's scale to an interval 1e-12
+        # wide, `_unpack` stores exp(x) and `_pack` reads log(scale) back, and that
+        # is not exactly the identity: measured, a frozen log-scale bounded at 1e-12
+        # came back as 1.0000889e-12 and `least_squares` refused the round with
+        # "Initial guess is outside of provided bounds". Clipping is right rather
+        # than merely quiet — the value is inside the interval to within float
+        # precision, and the alternative is failing a solve over one ulp.
+        before = np.clip(_pack(working), lower, upper)
         result = optimize.least_squares(
             _residuals,
             before,
@@ -418,7 +465,7 @@ def _term_costs(
             ** 2
         )
     )
-    bare = SolveWeights(depth=0.0, support=0.0, penetration=0.0)
+    bare = SolveWeights(depth=0.0, support=0.0, penetration=0.0, containment=0.0)
     return {
         "total": full,
         "depth": full
@@ -429,7 +476,11 @@ def _term_costs(
                     graph,
                     observations,
                     bare.model_copy(
-                        update={"support": weights.support, "penetration": weights.penetration}
+                        update={
+                            "support": weights.support,
+                            "penetration": weights.penetration,
+                            "containment": weights.containment,
+                        }
                     ),
                     anchors,
                     settled,

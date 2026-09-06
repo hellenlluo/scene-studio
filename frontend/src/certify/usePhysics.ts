@@ -18,7 +18,7 @@ import PhysicsWorker from './physics.worker?worker'
 /** Simulated seconds advanced per animation frame. */
 const STEP_SECONDS = 1 / 60
 
-export type PhysicsState = 'idle' | 'loading' | 'running' | 'error'
+export type PhysicsState = 'idle' | 'loading' | 'running' | 'diverged' | 'error'
 
 export interface Physics {
   state: PhysicsState
@@ -79,20 +79,34 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
     const instance = new PhysicsWorker()
     worker.current = instance
 
+    const step = () => {
+      if (!stepping.current) return
+      instance.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
+    }
+
     instance.onmessage = (event: MessageEvent<Event>) => {
       const message = event.data
       if (message.type === 'ready') {
         setState('running')
         stepping.current = true
-        const tick = () => {
-          if (!stepping.current) return
-          instance.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
-          frame.current = requestAnimationFrame(tick)
-        }
-        frame.current = requestAnimationFrame(tick)
+        step()
       } else if (message.type === 'poses') {
         setTime(message.time)
         setPoses(new Map(message.poses.map((pose) => [pose.objectId, pose])))
+        // Backpressure: the next step is scheduled by the reply to the last one, so
+        // exactly one is ever in flight. Posting on every animation frame regardless
+        // put no bound on the worker's queue — the moment stepping costs more than a
+        // frame the backlog grows without limit and the tab stops responding, with
+        // nothing on screen to say why.
+        if (stepping.current) frame.current = requestAnimationFrame(step)
+      } else if (message.type === 'unstable') {
+        // Not an error state: the run was real up to this point, and the poses on
+        // screen are the last ones before it came apart. Stopping here is what makes
+        // the failure legible instead of an endless restart loop.
+        setTime(message.time)
+        setError(message.message)
+        setState('diverged')
+        stepping.current = false
       } else if (message.type === 'error') {
         setError(message.message)
         setState('error')
@@ -135,9 +149,16 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
 
   const reset = useCallback(() => {
     // Back to the compiled pose — which is the server's, since nothing here ever
-    // wrote to it.
+    // wrote to it. Also the way out of `diverged`: the worker restarts its own
+    // clock, so stepping can resume from a state that is known good.
     worker.current?.postMessage({ type: 'reset' } satisfies Command)
     setTime(0)
+    setError(null)
+    if (worker.current) {
+      setState('running')
+      stepping.current = true
+      worker.current.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
+    }
   }, [])
 
   return useMemo(

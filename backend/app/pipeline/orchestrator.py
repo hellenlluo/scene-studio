@@ -13,7 +13,17 @@ from pydantic import BaseModel
 
 from app.certify import certify, repair
 from app.export import gltf, mjcf
-from app.pipeline import depth, inertia, labeling, reconcile, rigid, segment, solve, verify
+from app.pipeline import (
+    depth,
+    inertia,
+    labeling,
+    occlusion,
+    reconcile,
+    rigid,
+    segment,
+    solve,
+    verify,
+)
 from app.pipeline.base import PipelineContext, cache_key, load_cached, store_cached
 from app.schemas import (
     ExportResult,
@@ -79,12 +89,28 @@ def run_pipeline(
         ctx, StageName.LABEL, labeling.LabelResult, lambda: labeling.run(ctx, seg), (seg,), report
     )
 
+    # Stage 3.5. Local and cheap, so it is not a cached stage of its own — but it
+    # rewrites the mask set, so everything downstream takes `seg`/`lab` from here and
+    # the reconstruct key below picks the change up for free.
+    resolved = occlusion.run(ctx, seg, lab, dep)
+    seg, lab = resolved.segments, resolved.labels
+
+    # Keyed on the masks, not the labels. SAM 3D is given the photo and the masks and
+    # nothing else — the labels never reach it — so including them bought nothing and
+    # cost real money: `label` is a VLM call and not deterministic, so a rerun that
+    # relabels the same masks differently invalidated this entry and paid fal again to
+    # regenerate byte-identical meshes.
+    #
+    # `max_mesh_faces` *is* in the key, because it changes what this stage stores:
+    # a mesh over the cap is decimated and one under it is not. Left out, raising the
+    # cap to recover an object's collision surface would appear to do nothing, because
+    # the decimated mesh would be served straight back from cache.
     rig = _run_stage(
         ctx,
         StageName.RECONSTRUCT,
         rigid.ReconstructionResult,
-        lambda: rigid.run(ctx, seg, lab),
-        (seg, lab),
+        lambda: rigid.run(ctx, seg),
+        (seg, ctx.settings.max_mesh_faces),
         report,
     )
 

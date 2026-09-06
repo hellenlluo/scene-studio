@@ -590,7 +590,76 @@ class SolveWeights(BaseModel):
         "constraint that overrode depth entirely would be discarding the "
         "measurement the whole pipeline exists to make.",
     )
-    penetration: float = 5.0
+    penetration: float = Field(
+        default=20.0,
+        description="Weight on pairwise overlap depth.\n\n"
+        "Raised from 5.0 on measurement. At 5.0 it was outvoted the same way "
+        "`support` was before its own raise — depth contributes six residuals per "
+        "object against one per *pair* here — and the overlap it left was the thing "
+        "physics could not survive: a 14.5 mm book-on-book overlap ejected a 0.158 kg "
+        "book at 16.7 m/s. Swept on `room2.png`, worst overlap and settle drift both "
+        "improve to 20 and both get worse past it:\n\n"
+        "    weight   worst overlap   settle drift\n"
+        "         5         7.5 mm        2601 mm\n"
+        "        20         4.5 mm        1768 mm\n"
+        "        60        43.5 mm        2554 mm\n\n"
+        "60 overshoots — pushing one pair apart drives each of them into something "
+        "else — so this sits at the minimum rather than at the top of the range. "
+        "`room1.png` certifies on all four axes at both 5 and 20 with identical "
+        "settle drift, so the raise costs nothing on a scene that was already sound.",
+    )
+    containment: float = Field(
+        default=0.0,
+        description="Weight on how far a supported object's footprint centre sits "
+        "*outside* its support.\n\n"
+        "The support term is signed but vertical — it closes the gap to whatever an "
+        "object rests on and says nothing about staying over it. So nothing in the "
+        "objective resisted lateral drift, and depth is free to slide a child off "
+        "its parent at no cost. Measured on `room2.png`: between reconcile and "
+        "solve, four objects on the side table moved 314, 904, 1007 and 1225 mm "
+        "sideways while keeping the same `supported_by`, and seven of nine scale "
+        "failures were objects at the right height (gap under 3 mm against a 5 mm "
+        "bar) that were no longer over anything. Floor-standing objects moved "
+        "0.0-0.8 mm over the same solve, which is what a term acting only on "
+        "supported objects looks like when it is missing.\n\n"
+        "One-sided and zero inside, exactly like penetration: an object over its "
+        "support pays nothing, so this cannot distort a scene that was already "
+        "right. Measured on the footprint *centre* against the parent's AABB, "
+        "because that is the criterion `certify.scale` reports — a laptop "
+        "overhanging a side table by one corner is resting on it, and requiring "
+        "full containment would fail it.\n\n"
+        "**Off by default, because on a concave parent it does more harm than good.** "
+        "The target is the parent\'s AABB, and a bookshelf\'s AABB is mostly solid "
+        "shelf — so pulling a vase\'s centre \'inside\' it drives the vase into the "
+        "structure. Swept on `room2.png`, against the scene entering solve with no "
+        "overlap at all:\n\n"
+        "    weight   vase buried   not-over-support   settle drift\n"
+        "         0       0.00 mm           6/15           1237 mm\n"
+        "         8       4.95 mm           4/15           1568 mm\n"
+        "        20      20.62 mm           3/15           1731 mm\n"
+        "        60      34.03 mm           1/15           2358 mm\n\n"
+        "It buys the scale axis by paying the stability axis, monotonically, and "
+        "settling degrades at every step — the 34 mm burial is what MuJoCo ejects at "
+        "15.9 m/s before diverging. The term itself is right and its unit tests hold "
+        "on a flat support; what is wrong is the target. It should pull toward the "
+        "parent\'s *supporting surface*, not its bounding box, and today\'s "
+        "`SupportHeights` cannot express that — a top-down heightfield keeps one "
+        "height per column, so it cannot represent a shelf with anything under it. "
+        "Turn this on once support is a surface rather than a heightfield.\n\n"
+        "For the record, on a flat support the weight sweep was clean: 60.0 is the "
+        "floor rather than the knee, which is the opposite of how "
+        "`support` is tuned, and for a reason that does not apply there. Swept "
+        "against depth wrong by 0.8 m, the residual offset goes 311 mm at 0, then "
+        "10.8, 2.8, 0.7, 0.2 and 0.0 mm at 4, 8, 16, 30 and 60 — while the depth "
+        "term\'s own cost sits at 0.043 from 4 upward and never moves again. "
+        "`base_inside_parent` is a boolean, so a term that leaves 0.7 mm outside "
+        "has not fixed the check it exists to fix, and there is no repair strategy "
+        "for containment to finish the job — `_snap_to_support` only translates in "
+        "z. Weighting `support` this hard would override depth on every object "
+        "because it is signed and always active; this one is inert until an object "
+        "has already left its support, so buying the boolean outright costs "
+        "nothing on a scene that was placed correctly.",
+    )
 
 
 class ScaleAnchor(BaseModel):
@@ -749,10 +818,26 @@ class Certificate(BaseModel):
         description="From Settings.max_com_displacement_m, recorded for the same "
         "reason as the penetration tolerance.",
     )
+    support_gap_tolerance_m: float = Field(
+        default=0.005,
+        description="From Settings.max_support_gap_m — how far an object may sit from "
+        "what it rests on before the scale axis calls it floating or sunk.\n\n"
+        "Added after a client reported an object as 'floating above its support by "
+        "0.9 mm (tolerance 2 mm)' when it passed the gap test outright at a 5 mm "
+        "bar and had failed on containment instead. With no gap tolerance published "
+        "the client had reached for `penetration_tolerance_m`, which is the closest "
+        "number on the certificate and the wrong one.",
+    )
+    prior_deviation_tolerance_sigma: float = Field(
+        default=3.0,
+        description="From Settings.max_prior_deviation_sigma. Published for the same "
+        "reason: a client with no threshold to read invents one, and an invented "
+        "cutoff disagrees with the axis it claims to explain.",
+    )
     orientation_drift_tolerance_deg: float = Field(
         default=2.0,
         description="From Settings.max_orientation_drift_deg.\n\n"
-        "All three thresholds are on the certificate so a reader can say *which* "
+        "All five thresholds are on the certificate so a reader can say *which* "
         "criterion a check failed on. Without them a client has to invent its own "
         "cutoffs, and one did: a floor lamp failing on 295 mm of displacement was "
         "also reported as overlapping its neighbour, because the client tested "

@@ -302,6 +302,19 @@ main {
   font: inherit;
   text-align: left;
 }
+/* The support relation. Muted and on its own line so it reads as context for the
+   row rather than as part of the object's name, and so a long parent name wraps
+   under the object instead of pushing the badge off the edge. */
+.object-support {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.object--failed .object-support {
+  color: var(--muted);
+}
+
 .object--failed {
   color: var(--fail);
 }

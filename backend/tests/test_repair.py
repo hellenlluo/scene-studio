@@ -233,3 +233,37 @@ def test_the_limit_is_configurable(ctx):
     tight = ctx.settings.model_copy(update={"max_snap_m": 0.1})
     ctx.settings = tight
     assert not _repair(ctx, graph).certificate.passed
+
+
+# --- what an action is scored against ------------------------------------------
+
+
+def test_only_the_target_and_its_dependents_are_scored(tmp_path):
+    """A repair is judged on what it can physically reach.
+
+    The whole-scene total is not defeated by noise — `certify` is deterministic to
+    the digit — but by sensitivity. Until a scene settles its objects are mid-fall,
+    and perturbing any body redirects every trajectory. Measured on `room2.png`,
+    snapping the armchair 16.7 mm onto the rug it rests on improved the armchair
+    from 23.3 mm of COM drift to 9.8 mm, and was rejected because a book on the far
+    side of the room went 565 -> 645 mm. The two are not in contact.
+    """
+    graph = scenes.kitchen()
+    assert repair._affected(graph, "mug") == {"mug"}
+    # Everything transitively on the table comes with it.
+    assert "mug" in repair._affected(graph, "table")
+    assert "cabinet" not in repair._affected(graph, "table")
+
+
+def test_a_subset_score_ignores_objects_outside_it(ctx):
+    """`_violation(ids=...)` is the same sum over fewer checks, which is what makes
+    a local comparison meaningful rather than merely smaller."""
+    settings = ctx.settings
+    cert = certify.run(ctx, scenes.mug_sunk_into_table())
+
+    whole = repair._violation(cert, settings)
+    mug_only = repair._violation(cert, settings, {"mug"})
+    nothing = repair._violation(cert, settings, set())
+
+    assert nothing == 0.0
+    assert 0.0 < mug_only <= whole

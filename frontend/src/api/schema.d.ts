@@ -66,16 +66,30 @@ export interface paths {
         get: operations["get_scene_api_scenes__scene_id__get"];
         /**
          * Edit Scene
-         * @description Apply a user edit, re-solve around it, and re-certify.
+         * @description Apply a user edit, re-solve from it, and re-certify.
          *
          *     Everything is editable — pose, scale, support parent, mass. There is no wizard
          *     and no gating, because the system does not know enough to decide what the user
          *     is allowed to touch.
          *
-         *     Edited values are written with Provenance.USER, which is what makes them
-         *     pinned: the next solve holds them fixed and moves everything else around
-         *     them. A scale anchor is the same mechanism expressed as an E_prior term with
-         *     sigma -> 0, and it propagates as far as the constraint graph is connected.
+         *     **The edit seeds the solve; it does not constrain it.** `solve.run` starts from
+         *     whatever pose the graph carries, so writing the new position and re-running is
+         *     the whole mechanism: the object is refined from where the user put it rather
+         *     than from where reconstruction did, and the objects resting on it follow. A
+         *     typed dimension is different and already has its own hard-constraint path —
+         *     `ScaleAnchor`, which enters `E_prior` with sigma to zero. A dragged position is
+         *     an eyeball estimate, and holding one infinitely certain would throw away the
+         *     depth measurement in its favour.
+         *
+         *     **No repair.** Repair is a separate, deliberate action with its own endpoint. An
+         *     edit that silently moved objects the user did not touch would be a surprising
+         *     thing for a drag to do, and the certificate returned here is the honest answer
+         *     to "what did my edit do" — including when the answer is that it made things
+         *     worse.
+         *
+         *     Values the user set are marked `Provenance.USER`, which nothing reads yet. It
+         *     records what a person chose as distinct from what a model predicted, and that
+         *     is worth keeping whether or not the solver ever holds it fixed.
          */
         put: operations["edit_scene_api_scenes__scene_id__put"];
         post?: never;
@@ -311,10 +325,24 @@ export interface components {
              */
             com_displacement_tolerance_m: number;
             /**
+             * Support Gap Tolerance M
+             * @description From Settings.max_support_gap_m — how far an object may sit from what it rests on before the scale axis calls it floating or sunk.
+             *
+             *     Added after a client reported an object as 'floating above its support by 0.9 mm (tolerance 2 mm)' when it passed the gap test outright at a 5 mm bar and had failed on containment instead. With no gap tolerance published the client had reached for `penetration_tolerance_m`, which is the closest number on the certificate and the wrong one.
+             * @default 0.005
+             */
+            support_gap_tolerance_m: number;
+            /**
+             * Prior Deviation Tolerance Sigma
+             * @description From Settings.max_prior_deviation_sigma. Published for the same reason: a client with no threshold to read invents one, and an invented cutoff disagrees with the axis it claims to explain.
+             * @default 3
+             */
+            prior_deviation_tolerance_sigma: number;
+            /**
              * Orientation Drift Tolerance Deg
              * @description From Settings.max_orientation_drift_deg.
              *
-             *     All three thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
+             *     All five thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
              * @default 2
              */
             orientation_drift_tolerance_deg: number;
@@ -328,6 +356,36 @@ export interface components {
             budget_ms: number;
             /** Passed */
             passed: boolean;
+        };
+        /**
+         * DepthObservation
+         * @description What stage 2 measured about one object, kept so stage 6 can be re-run.
+         *
+         *     Six numbers, and they are the entire depth input to the solve: `_residuals`
+         *     scores the object's world AABB centre and extent against these and reads
+         *     nothing else from the depth map. Storing them rather than the 4 MB map is what
+         *     makes a re-solve stateless — a user edit can be committed and the scene
+         *     re-fitted without the depth `.npy` and every mask PNG still being on disk under
+         *     the key that produced them.
+         *
+         *     In the **recentred world frame**, not the camera frame `reconcile.observe`
+         *     reports. Applying `world_offset_m` once here means a re-solve does not have to
+         *     know whether it has been applied already, which is the sort of thing that is
+         *     silently wrong in one direction.
+         */
+        DepthObservation: {
+            /** Centre M */
+            centre_m: [
+                number,
+                number,
+                number
+            ];
+            /** Extent M */
+            extent_m: [
+                number,
+                number,
+                number
+            ];
         };
         /**
          * DimensionPrior
@@ -948,6 +1006,8 @@ export interface components {
              * @description object_id of the supporting body, or None for the floor.
              */
             supported_by?: string | null;
+            /** @description What depth measured for this object, carried so stage 6 can be re-run without the depth map. Absent on hand-authored scenes, which have no measurement behind them — the solver then has no `E_depth` term for the object and relies on contact alone. */
+            observation?: components["schemas"]["DepthObservation"] | null;
             /**
              * Degradation Reason
              * @description Why this object came back worse than intended, when it did — reconstruction failed and it fell back to a box, say. Shown in the viewer, because 'we could not reconstruct this' is a different message to the user than 'this reconstructed but fails certification'.

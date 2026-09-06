@@ -37,7 +37,6 @@ import trimesh
 from app.pipeline.base import PipelineContext
 from app.schemas import (
     AssetFrame,
-    LabelResult,
     ObjectAssets,
     PartGeometry,
     ReconstructionResult,
@@ -214,7 +213,7 @@ def _failed(object_id: str, reason: str) -> ObjectAssets:
     )
 
 
-def run(ctx: PipelineContext, segments: SegmentResult, labels: LabelResult) -> ReconstructionResult:
+def run(ctx: PipelineContext, segments: SegmentResult) -> ReconstructionResult:
     if not segments.masks:
         return ReconstructionResult(objects=[])
 

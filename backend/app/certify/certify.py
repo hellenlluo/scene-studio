@@ -47,6 +47,9 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
         graph,
         settings.max_prior_deviation_sigma,
         settings.max_support_gap_m,
+        # Burial is penetration, so the scale axis grades it against the same
+        # tolerance the stability axis does. See `scale.gap_ok`.
+        settings.max_penetration_m,
         supports,
     )
     stability_checks = stability.run(graph, settings)

@@ -84,36 +84,27 @@ export function CertificatePanel({ envelope, physics }: Props) {
         objects: [...edits.values()],
         anchors: [],
         // Re-solve from the edit rather than merely storing it, so the objects
-        // resting on what moved follow it. The server does not repair — that stays
-        // a separate, deliberate action.
+        // resting on what moved follow it. The server also re-derives what each
+        // moved object rests on, and repairs — both bounded to the edit.
         resolve: true,
       }),
-    onSuccess: (scene) => {
-      queryClient.setQueryData(["scene", scene.spec.scene_id], scene);
-      queryClient.invalidateQueries({ queryKey: ["scenes"] });
-      // Only after the server has them. Clearing on click would lose the edits if
-      // the request failed, and the user would have no way to know what to redo.
-      clearEdits();
-    },
-  });
-
-  const repair = useMutation({
-    mutationFn: () => api.repairScene(envelope.spec.scene_id),
     onSuccess: (result) => {
-      // Write the response straight into the cache instead of invalidating and
-      // refetching. The repair endpoint already returns the updated envelope, so the
-      // refetch was a wasted round trip — and during it `scene.data` could go
-      // undefined, unmounting the Viewer, the `<Canvas>`, and the one camera the whole
-      // app shares. That is what made the view jump back to its default on repair.
+      // Written straight into the cache rather than invalidated and refetched. The
+      // endpoint already returns the updated envelope, so a refetch is a wasted
+      // round trip — and during it `scene.data` could go undefined, unmounting the
+      // Viewer, the `<Canvas>`, and the one camera the whole app shares. That is
+      // what used to make the view jump back to its default.
       queryClient.setQueryData(
         ["scene", result.scene.spec.scene_id],
         result.scene,
       );
-      // The list carries the per-scene certified dot, and nothing else does, so it is
-      // the one query that genuinely has to be refetched. Scoped, rather than the
-      // bare `invalidateQueries()` this replaces, which invalidated every query in the
-      // cache including the one just written above.
+      // The list carries the per-scene certified dot and nothing else does, so it
+      // is the one query that genuinely has to be refetched. Scoped rather than a
+      // bare `invalidateQueries()`, which would invalidate the entry just written.
       queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      // Only after the server has them. Clearing on click would lose the edits if
+      // the request failed, and the user would have no way to know what to redo.
+      clearEdits();
     },
   });
 
@@ -184,6 +175,27 @@ export function CertificatePanel({ envelope, physics }: Props) {
           {commit.error && (
             <p className="note note--error">{String(commit.error)}</p>
           )}
+        </div>
+      )}
+
+      {/* What committing corrected, shown outside the `dirty` block because it
+          describes the commit that just finished — by which point there are no
+          uncommitted edits left and that block is gone.
+
+          Shown at all because a commit now repairs, and a repair that moved
+          something without saying so is exactly the silent change this endpoint
+          used to avoid by never repairing. Reverted proposals are listed too: what
+          was tried and did not work is what you need when a scene will not
+          certify. */}
+      {commit.data && commit.data.actions.length > 0 && (
+        <div className="note">
+          {commit.data.actions.map((action, index) => (
+            <div key={index}>
+              {action.improved ? "✓" : "✗"} {action.kind.replace(/_/g, " ")}{" "}
+              {displayNames.get(action.target_id) ?? action.target_id} by{" "}
+              {(action.magnitude * 1000).toFixed(0)} mm
+            </div>
+          ))}
         </div>
       )}
 
@@ -302,42 +314,13 @@ export function CertificatePanel({ envelope, physics }: Props) {
         })}
       </ul>
 
-      {/* Rendered even when there is nothing to repair, disabled rather than hidden.
-          Hiding it made a passing scene look like a missing feature — the same trap
-          the physics button falls into, where the success case is indistinguishable
-          from the thing being broken. */}
-      <button
-        type="button"
-        className="repair"
-        onClick={() => repair.mutate()}
-        disabled={repair.isPending || certified}
-      >
-        {repair.isPending
-          ? "Repairing…"
-          : certified
-            ? "nothing to repair"
-            : "Repair"}
-      </button>
-
-      {repair.data && (
-        <div className="note">
-          {repair.data.actions.length === 0
-            ? "nothing to repair"
-            : repair.data.actions.map((action, index) => (
-                <div key={index}>
-                  {action.improved ? "✓" : "✗"} {action.kind.replace(/_/g, " ")}{" "}
-                  {action.target_id} by {(action.magnitude * 1000).toFixed(0)}{" "}
-                  mm
-                </div>
-              ))}
-          {!repair.data.converged && (
-            <div>stopped on the round budget, not finished</div>
-          )}
-        </div>
-      )}
-      {repair.error && (
-        <p className="note note--error">{String(repair.error)}</p>
-      )}
+      {/* No Repair button. Committing an edit now repairs as part of the same
+          action, bounded to the objects the edit touched, so a separate button
+          asked the user to distinguish between two things they have no reason to
+          think of as different — and left the failure case reachable only by
+          knowing to press it. What repair did is reported above, next to the
+          commit that caused it. The whole-scene endpoint still exists for a scene
+          nobody has edited. */}
     </aside>
   );
 }

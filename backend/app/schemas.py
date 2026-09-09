@@ -80,6 +80,21 @@ class ObjectMask(BaseModel):
     mask_path: str  # single-channel PNG, image resolution
     bbox_px: tuple[int, int, int, int]
     area_px: int
+    concept: str | None = Field(
+        default=None,
+        description="The noun phrase SAM 3 was searching for when it found this mask.\n\n"
+        "Kept because it is the strongest evidence there is about what the object "
+        "*is*, and stage 3's second pass used to re-derive that from pixels having "
+        "never been told it. Measured on `room2.png`: a bookshelf came back as "
+        "`book` and an armchair as `towel`, judged from a numbered photo, while the "
+        "phrase that found each mask sat one stage upstream and was discarded.\n\n"
+        "Evidence, not a verdict, for the two reasons `segment._object_id` gives for "
+        "not naming ids after it: deduplication keeps the highest-scoring detection, "
+        "so the surviving phrase can be the wrong synonym — one floor lamp survived "
+        "as a table lamp — and the phrases are open text while `ObjectLabel.category` "
+        "is a closed vocabulary keyed to a density table. So the labelling pass is "
+        "shown it and asked to confirm or correct it.",
+    )
 
 
 class SegmentResult(BaseModel):
@@ -289,6 +304,20 @@ class PartGeometry(BaseModel):
     parent_part_id: str | None = None
 
     visual_mesh_path: str | None = None  # None when the OBB fallback is in use
+    source_mesh_path: str | None = Field(
+        default=None,
+        description="The mesh as reconstruction returned it, before decimation.\n\n"
+        "`visual_mesh_path` is what the browser downloads and is decimated to fit "
+        "`max_mesh_faces`; decimation opens the surface, and a repair pass does not "
+        "close it again. So the file the viewer gets is not the file physics should "
+        "be built from, and building physics from it made a visual budget decide a "
+        "physical fact: measured on `room2.png`, an armchair that crossed the face "
+        "cap came out with no collision geometry under its lower 27.9%, fell 589 mm, "
+        "and took the pillow on it down 992 mm.\n\n"
+        "Kept so `inertia` can decompose and weigh the closed original while the "
+        "viewer keeps the small one. None on the OBB fallback path, and on meshes "
+        "that never needed decimating — there the visual mesh *is* the original.",
+    )
     collision_mesh_paths: list[str] = Field(default_factory=list)
     proxy_tier: ProxyTier = ProxyTier.OBB
 
@@ -628,7 +657,59 @@ class SolveWeights(BaseModel):
         "because that is the criterion `certify.scale` reports — a laptop "
         "overhanging a side table by one corner is resting on it, and requiring "
         "full containment would fail it.\n\n"
-        "**Off by default, because on a concave parent it does more harm than good.** "
+        "**Off by default. Swept three times, off after each.**\n\n"
+        "The third sweep is the one that settles it, because the two objections the "
+        "earlier ones raised have both since been answered elsewhere: the target is "
+        "`nearest_support_xy`, a real occupied column of the parent rather than its "
+        "AABB, and the support *gap* is now `gap_to`, probed on the child's own "
+        "underside rather than on bounding-box corners. Neither of the old excuses "
+        "survives, and the term still does not pay. Swept on `room2`:\n\n"
+        "    weight   not-over-support   worst overlap   settle drift\n"
+        "         0         5/16            17.3 mm        11094 mm\n"
+        "         5         5/16            15.2 mm         5925 mm\n"
+        "        10         6/16            15.7 mm         1840 mm\n"
+        "        20         8/16             7.2 mm         1927 mm\n"
+        "        40         6/16            44.7 mm         1049 mm\n\n"
+        "`not-over-support` is the number this term exists to reduce and it goes "
+        "*up*, non-monotonically, peaking at the weight where overlap happens to "
+        "look best. That is not a knee to tune to, it is noise.\n\n"
+        "**It is not that the term does nothing — it is that repair does it "
+        "better.** Scoped to one object, which is how an edit actually runs it, "
+        "containment works: `room2`'s plate moves from y=0.719 to y=0.578, inside "
+        "the side table's y span, at every weight from 5 up. But `base_inside_parent` "
+        "stays False throughout, because being over a surface in plan view is not "
+        "resting on it, and a lateral term cannot close a vertical gap. Repair "
+        "closes both — `_slide_onto_support` moves the plate 228 mm onto the table "
+        "and `_snap_to_support` then drops it the last 2 mm — and since repair now "
+        "runs on every commit, that path reaches the same objects without the "
+        "scene-wide cost above.\n\n"
+        "Revisit if repair's scoping ever stops covering the case, or if a scene "
+        "appears where an object leaves its support without any certificate check "
+        "firing. Until then this is a term that is right in principle, correct in "
+        "isolation, and dominated in practice.\n\n"
+        "The second reason it was off, kept because the trade it describes is "
+        "real:\n\n"
+        "Aimed at the parent\'s AABB it drove objects into concave parents, so it was "
+        "re-aimed at the nearest point with real surface under it once the height "
+        "grid could answer that. Swept again on `room2.png` it still trades one axis "
+        "for another, now by colliding the object with its neighbours on the way:\n\n"
+        "    weight   not-over-support   worst overlap   settle drift\n"
+        "         0         4/17             8.1 mm         2219 mm\n"
+        "        10         2/17            43.5 mm         8183 mm\n"
+        "        40         2/17           105.4 mm         3169 mm\n\n"
+        "It buys two objects their support and costs an order of magnitude of "
+        "overlap. The pull is only as good as the query under it, and that query "
+        "still places its probes on the child\'s *bounding box* rather than on the "
+        "child\'s own contact geometry — measured on the side table, a pedestal whose "
+        "contact patch is 0.107 x 0.037 m inside a 0.56 x 0.58 m footprint, so 99% of "
+        "what gets probed is the empty air under a round top. Fix the probe placement "
+        "before believing another sweep of this weight.\n\n"
+        "*Since resolved, and it did not rescue the term.* `SupportHeights.gap_to` "
+        "now probes the child\'s own underside points, so the pedestal case is "
+        "measured correctly — and the third sweep above, run afterwards, is worse "
+        "than this one. The probes were a real defect; they were not what was "
+        "holding this weight down.\n\n"
+        "The first reason it was off, kept because the trade it describes is real:\n\n"
         "The target is the parent\'s AABB, and a bookshelf\'s AABB is mostly solid "
         "shelf — so pulling a vase\'s centre \'inside\' it drives the vase into the "
         "structure. Swept on `room2.png`, against the scene entering solve with no "
@@ -750,6 +831,27 @@ class ScaleCheck(BaseModel):
     deviation_sigma: Vec3 = Field(description="Per-axis (fitted - prior) / sigma.")
     support_gap_m: float = Field(
         default=0.0, description="Signed gap on the support contact. Negative is penetration."
+    )
+    touching_parent: bool = Field(
+        default=True,
+        description="Whether the object meets the thing it is *recorded* as resting "
+        "on, anywhere, within the penetration tolerance.\n\n"
+        "Split from `support_gap_m` because the two answer different questions and "
+        "folding them together made both wrong. The gap is geometry — is this "
+        "floating, buried, or resting — and it is measured against whatever lies "
+        "beneath the object, which in a real scene is often more than one thing: an "
+        "armchair with three legs on a rug and one on the floor is ordinary and "
+        "stable, and so is a book overlapping another book by most of its face.\n\n"
+        "This is semantics: a book that fell from its table to the floor has a "
+        "perfect gap and is perfectly stable, and is still in the wrong place. Only "
+        "a check that names the table can say so.",
+    )
+    resting_on: str | None = Field(
+        default=None,
+        description="What the object is actually nearest to resting on, which need "
+        "not be `SceneObject.supported_by`. None means the floor. Recorded because a "
+        "disagreement between the two is the single most useful thing to know when a "
+        "scene looks right and certifies wrong.",
     )
     base_inside_parent: bool = True
     passed: bool = True
@@ -900,9 +1002,21 @@ class Certificate(BaseModel):
 
 
 class RepairKind(StrEnum):
-    SNAP_TO_SUPPORT = "snap_to_support"
-    RESOLVE_PENETRATION = "resolve_penetration"
-    RESCALE = "rescale"
+    """One per way a scene can fail.
+
+    The pairing is the point. A criterion the certificate can fail on with no
+    strategy able to address it produces a scene that is reported broken and cannot
+    be acted on — measured on `room2.png`, four of five failing objects were outside
+    their contact polygon, `snap_to_support` moves only in z, and repair proposed a
+    single action for the whole scene and rejected it. `test_repair` asserts the
+    pairing so a new criterion cannot land without one.
+    """
+
+    SNAP_TO_SUPPORT = "snap_to_support"  # support_gap_m
+    SLIDE_ONTO_SUPPORT = "slide_onto_support"  # base_inside_parent
+    REPARENT = "reparent"  # touching_parent
+    RESOLVE_PENETRATION = "resolve_penetration"  # initial_penetration_m
+    RESCALE = "rescale"  # deviation_sigma
     UPGRADE_PROXY_TIER = "upgrade_proxy_tier"
 
 
@@ -918,6 +1032,12 @@ class RepairAction(BaseModel):
 
     delta_position_m: Vec3 = (0.0, 0.0, 0.0)
     delta_scale: float = 1.0
+    new_parent_id: str | None = Field(
+        default=None,
+        description="For REPARENT: the object this should have been recorded as "
+        "resting on. Distinct from a position change because nothing moves — the "
+        "geometry was right and the bookkeeping was wrong.",
+    )
 
     magnitude: float = Field(default=0.0, description="Size of the correction, for minimality.")
     improved: bool = Field(

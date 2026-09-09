@@ -234,13 +234,19 @@ def test_committing_re_certifies():
         },
     ).json()
 
-    mug = next(c for c in body["spec"]["certificate"]["scale"] if c["object_id"] == "mug")
+    spec = body["scene"]["spec"]
+    mug = next(c for c in spec["certificate"]["scale"] if c["object_id"] == "mug")
     assert not mug["passed"], "a mug left in mid-air should fail its support check"
 
 
-def test_committing_does_not_repair():
-    """Repair is a separate, deliberate action. An edit that silently moved objects
-    the user did not touch would be a surprising thing for a drag to do."""
+def test_committing_without_resolving_does_not_repair():
+    """`resolve: false` stores the edit and nothing else.
+
+    Repair rides on the same flag as the solve, because both are corrections and a
+    client asking for the pose to be stored verbatim wants neither. The flag is the
+    whole gate: with it off there is no free set, so there is nothing repair would
+    be allowed to touch even if it ran.
+    """
     body = client.put(
         f"/api/scenes/{SOUND}",
         json={
@@ -249,7 +255,31 @@ def test_committing_does_not_repair():
         },
     ).json()
 
-    assert body["spec"]["repairs_applied"] == []
+    assert body["scene"]["spec"]["repairs_applied"] == []
+    assert body["actions"] == []
+
+
+def test_committing_repairs_only_what_the_edit_reached():
+    """A commit finishes the job it started, without rearranging the rest of the room.
+
+    Repair used to be refused here outright, which kept the scene honest and left
+    the user with a visibly broken result and a button to find. Scoping it to the
+    edited objects and their dependents answers the original objection — nothing
+    outside the set is ever proposed — while letting the commit fix its own mess.
+    """
+    body = client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            # Left floating: something for repair to find, on the object touched.
+            "objects": [{"object_id": "mug", "position_m": [0.0, 0.0, 1.4]}],
+            "resolve": True,
+        },
+    ).json()
+
+    touched = {action["target_id"] for action in body["actions"]}
+    assert touched <= {"mug"}, f"repair reached objects the edit did not: {touched - {'mug'}}"
+    # Reported, not silent — including proposals that were tried and reverted.
+    assert body["scene"]["spec"]["repairs_applied"] == body["actions"]
 
 
 def test_the_exports_are_rewritten_so_the_viewer_sees_the_edit():
@@ -258,7 +288,8 @@ def test_the_exports_are_rewritten_so_the_viewer_sees_the_edit():
         json={"objects": [{"object_id": "mug", "scale": 1.2}], "resolve": False},
     ).json()
 
-    for path in (body["spec"]["exports"]["gltf_path"], body["spec"]["exports"]["mjcf_path"]):
+    exports = body["scene"]["spec"]["exports"]
+    for path in (exports["gltf_path"], exports["mjcf_path"]):
         assert client.get(f"/storage/{path}").status_code == 200
 
 
@@ -288,6 +319,38 @@ def test_a_re_solve_keeps_an_edit_it_has_no_reason_to_undo():
     assert _mug_position(SOUND)[0] == pytest.approx(target[0], abs=0.02)
 
 
+def test_a_long_drag_into_clear_space_survives_the_solve():
+    """The reported bug: a drag with nothing opposing it used to be erased entirely.
+
+    Measured on `room2` before the fix, a 0.5 m drag and a 1.0 m drag of the lamp
+    each kept **0%** — the stale depth centre is three of the six depth residuals
+    and simply outvoted the seed. `solve._edit_priors` re-aims those three at what
+    the user set, so a move into empty space now costs nothing to keep.
+
+    The cabinet, because it stands on the floor: a drag along the floor is opposed
+    by nothing, which is what isolates the depth term as the thing under test.
+    """
+
+    def cabinet_x():
+        spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
+        return next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")[
+            "position_m"
+        ][0]
+
+    before = cabinet_x()
+    target = before + 0.6
+    client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            "objects": [{"object_id": "cabinet", "position_m": [target, 0.0, 0.46]}],
+            "resolve": True,
+        },
+    )
+
+    kept = (cabinet_x() - before) / 0.6
+    assert kept > 0.9, f"the solve kept only {100 * kept:.0f}% of a 0.6 m drag"
+
+
 def test_a_re_solve_pulls_an_impossible_edit_back():
     """The other half, and the reason a drag is seeded rather than held: put the mug
     in mid-air and the contact term brings it back down onto the table.
@@ -308,16 +371,20 @@ def test_a_re_solve_pulls_an_impossible_edit_back():
     assert mug["passed"], "and it is resting again"
 
 
-def test_a_re_solve_leaves_the_value_derived_not_the_user_s():
-    """A consequence of seeding rather than pinning, asserted so it is not a surprise.
+def test_a_re_solve_keeps_the_user_marking_on_what_the_user_set():
+    """`Provenance.USER` survives the solve, and has to.
 
-    `Provenance.USER` is written when the edit is applied and then overwritten by
-    the solve, because with a warm start the number that ends up stored is the
-    solver's refinement of the user's drag, not the drag itself. Claiming the user
-    set that exact value would be false. The marking only survives `resolve: false`.
+    This assertion used to read `derived`, on the reasoning that the stored number
+    is the solver's refinement of the drag rather than the drag itself. That was
+    defensible while nothing read the flag. It is not now: `solve._edit_priors`
+    reads it to decide whether the depth term aims at the measurement or at the
+    user's placement, so stamping over it made the solve erase its own input — the
+    first commit would honour a drag and the second would silently go back to being
+    outvoted by the stale depth centre.
 
-    If edits ever need to be held rather than seeded, this is the assertion that
-    will have to change, and it should change deliberately.
+    What is stored is still the refinement, and `position_m` may differ from what
+    was sent. The flag records *who decided this property*, which is the user, and
+    that stays true however far physics then nudges it.
     """
     client.put(
         f"/api/scenes/{SOUND}",
@@ -326,4 +393,79 @@ def test_a_re_solve_leaves_the_value_derived_not_the_user_s():
     spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
     mug = next(o for o in spec["graph"]["objects"] if o["object_id"] == "mug")
 
-    assert mug["provenance"]["position_m"] == "derived"
+    assert mug["provenance"]["position_m"] == "user"
+    # Untouched properties are still the solver's, so this is not a blanket
+    # "everything the user submitted is now theirs".
+    assert mug["provenance"]["scale"] == "derived"
+
+
+def test_a_second_commit_honours_a_drag_as_much_as_the_first():
+    """The regression the provenance fix exists to prevent.
+
+    With the marking erased by round one, round two re-read the stale depth centre
+    and pulled the object home again — so a user who nudged something twice saw the
+    second nudge behave completely differently from the first.
+    """
+    kept = []
+    for _ in range(2):
+        before = _mug_position(SOUND)
+        target = [before[0] + 0.05, before[1], before[2]]
+        client.put(
+            f"/api/scenes/{SOUND}",
+            json={"objects": [{"object_id": "mug", "position_m": target}], "resolve": True},
+        )
+        kept.append(_mug_position(SOUND)[0] - before[0])
+
+    assert kept[1] == pytest.approx(kept[0], abs=0.01), (
+        f"the second drag kept {1000 * kept[1]:.0f} mm where the first kept {1000 * kept[0]:.0f} mm"
+    )
+
+
+def test_dragging_an_object_onto_something_reparents_it():
+    """The reported bug, end to end.
+
+    The gizmo sends a position and nothing else — there is no parent in a drag —
+    so `supported_by` used to survive the edit unchanged and stage 6 closed the gap
+    to whatever the object *used* to rest on. Measured on `room2`, a book recorded
+    as floor-supported and dropped on the side table came back from the commit at
+    z=0.015: on the floor, underneath the table it had been dropped on.
+
+    The cabinet stands on the floor here, so lifting it onto the table is a change
+    of parent and not merely of height.
+    """
+    spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
+    cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
+    assert cabinet["supported_by"] is None, "the fixture should start on the floor"
+
+    # Base at the tabletop (z=0.75), centred over it: dropped squarely on the table.
+    client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            "objects": [{"object_id": "cabinet", "position_m": [0.0, 0.0, 0.75 + 0.46]}],
+            "resolve": True,
+        },
+    )
+
+    spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
+    cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
+    assert cabinet["supported_by"] == "table", "the drop should have adopted the table"
+    assert cabinet["position_m"][2] > 0.75, "and it should not have sunk back to the floor"
+
+
+def test_an_explicit_parent_is_not_re_derived():
+    """Re-deriving is for a drag, which carries no parent. When the user names one
+    it is a decision about the present, not a memory of the past, and it stands."""
+    client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            # On the floor by geometry, declared on the table by the user.
+            "objects": [
+                {"object_id": "cabinet", "position_m": [1.2, 0.0, 0.46], "supported_by": "table"}
+            ],
+            "resolve": True,
+        },
+    )
+    spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
+    cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
+
+    assert cabinet["supported_by"] == "table"

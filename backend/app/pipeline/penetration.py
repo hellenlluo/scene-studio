@@ -115,8 +115,12 @@ def _pieces(obj: SceneObject) -> list[trimesh.Trimesh]:
 class Penetrations:
     """Pairwise penetration depth, queried with the objects' current positions."""
 
-    def __init__(self, objects: dict[str, list]):
+    def __init__(self, objects: dict[str, list], bounds: dict[str, tuple] | None = None):
         self._objects = objects
+        # Local AABB of each object's collision pieces, already at its solved scale,
+        # so the world box is this plus the object's position. The broad phase; see
+        # `between`.
+        self._bounds = bounds or {}
 
     def between(self, first: SceneObject, second: SceneObject) -> float:
         """Deepest overlap between any piece of one and any piece of the other.
@@ -135,6 +139,21 @@ class Penetrations:
 
         a_pos = np.asarray(first.position_m, dtype=float)
         b_pos = np.asarray(second.position_m, dtype=float)
+
+        # Broad phase. Disjoint bounding boxes cannot contain overlapping contents,
+        # and in a room most pairs are nowhere near each other — the loop below is
+        # every convex piece against every convex piece, so an armchair's 16 hulls
+        # against a basket's 24 is 384 FCL calls for two objects on opposite sides of
+        # the rug. It runs inside the solver's residual and once per pair per
+        # finite-difference column: measured, one residual evaluation cost 30 ms and
+        # a re-solve 242 s, of which this loop was almost all.
+        a_box, b_box = self._bounds.get(first.object_id), self._bounds.get(second.object_id)
+        if a_box is not None and b_box is not None:
+            a_low, a_high = a_box[0] + a_pos, a_box[1] + a_pos
+            b_low, b_high = b_box[0] + b_pos, b_box[1] + b_pos
+            if np.any(a_high < b_low) or np.any(b_high < a_low):
+                return 0.0
+
         worst = 0.0
         for a in left:
             a.setTranslation(a_pos)
@@ -150,12 +169,19 @@ class Penetrations:
 def build(graph: SceneGraph, settings: Settings) -> Penetrations:
     """FCL objects for every object in the graph, at its current scale."""
     objects: dict[str, list] = {}
+    bounds: dict[str, tuple] = {}
     for obj in graph.objects:
-        pieces = [_convex_object(piece) for piece in _pieces(obj)]
+        meshes = list(_pieces(obj))
+        pieces = [_convex_object(piece) for piece in meshes]
         if pieces:
             objects[obj.object_id] = pieces
+            # In the same frame the FCL objects are built in — scaled, untranslated —
+            # so `between` only has to add each object's position.
+            lows = np.array([m.bounds[0] for m in meshes])
+            highs = np.array([m.bounds[1] for m in meshes])
+            bounds[obj.object_id] = (lows.min(axis=0), highs.max(axis=0))
     log.info("penetration: %d objects prepared", len(objects))
-    return Penetrations(objects)
+    return Penetrations(objects, bounds)
 
 
 def pairs(graph: SceneGraph) -> list[tuple[str, str]]:

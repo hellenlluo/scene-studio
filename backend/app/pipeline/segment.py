@@ -33,7 +33,7 @@ import cv2
 import httpx
 import numpy as np
 
-from app.pipeline.base import PipelineContext
+from app.pipeline.base import PipelineContext, prompt_fingerprint
 from app.schemas import ObjectMask, SegmentResult
 
 __all__ = ["SegmentResult", "run"]
@@ -49,6 +49,20 @@ POLL_INTERVAL_S = 1.0
 MIN_SCORE = 0.35
 # Two masks overlapping this much are the same object found by two names.
 DEDUP_IOU = 0.7
+# A detection this far inside another is a *part* of it, not a second object.
+#
+# IoU cannot see this. An open vocabulary routinely names both a whole and its
+# part - "potted plant" and "ceramic vase" were both in one inventory - and SAM 3
+# obligingly returns both, nested. Measured on `room2.png`: the vase mask sits 99%
+# inside the potted-plant mask, but the plant is nearly three times the area, so
+# the union is large and IoU comes out at 0.38, far under the bar above. The scene
+# then carried that vase twice, once alone and once with flowers in it.
+#
+# The larger one survives regardless of score, which is the opposite of the IoU
+# rule and deliberate: between a whole and its part, the whole is the object. A
+# part kept alongside its whole is a duplicate body in the physics, and otherwise
+# it is the expensive VLM pass in `verify` that has to notice.
+DEDUP_CONTAINMENT = 0.9
 # Smaller than this and there is nothing to reconstruct, just segmenter noise.
 MIN_AREA_FRACTION = 0.0005
 
@@ -182,7 +196,41 @@ def _deduplicate(detections: list[_Detection]) -> list[_Detection]:
             )
             continue
         kept.append(detection)
-    return kept
+    return _drop_parts(kept)
+
+
+def _contained(part: np.ndarray, whole: np.ndarray) -> float:
+    """Fraction of `part` that lies inside `whole`."""
+    area = part.sum()
+    return float(np.logical_and(part, whole).sum() / area) if area else 0.0
+
+
+def _drop_parts(kept: list[_Detection]) -> list[_Detection]:
+    """Drop any detection that lies almost entirely inside a larger one.
+
+    A separate pass rather than another condition in the loop above, because the
+    two rules disagree about who survives: IoU keeps the higher score, containment
+    keeps the *larger*. Folding them together would let a high-scoring part evict
+    the whole it belongs to.
+    """
+    by_area = sorted(kept, key=lambda d: -int(d.mask.sum()))
+    survivors: list[_Detection] = []
+    for detection in by_area:
+        whole = next(
+            (w for w in survivors if _contained(detection.mask, w.mask) >= DEDUP_CONTAINMENT),
+            None,
+        )
+        if whole is not None:
+            log.info(
+                "%r is %.0f%% inside %r; dropping it as a part rather than an object",
+                detection.concept,
+                100 * _contained(detection.mask, whole.mask),
+                whole.concept,
+            )
+            continue
+        survivors.append(detection)
+    # Back to score order, which the caller's sort and the object ids depend on.
+    return [d for d in kept if d in survivors]
 
 
 def run(ctx: PipelineContext, concepts: list[str]) -> SegmentResult:
@@ -233,6 +281,7 @@ def run(ctx: PipelineContext, concepts: list[str]) -> SegmentResult:
                 mask_path=str(path),
                 bbox_px=(int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())),
                 area_px=int(detection.mask.sum()),
+                concept=detection.concept,
             )
         )
 
@@ -244,3 +293,15 @@ def run(ctx: PipelineContext, concepts: list[str]) -> SegmentResult:
             stale.unlink()
 
     return SegmentResult(masks=masks, image_size_px=(shape[1], shape[0]))
+
+
+def dedup_fingerprint() -> str:
+    """Cache-key input covering the thresholds that decide what survives here.
+
+    `run` is keyed on the concept list, which says what was *asked for*, not what
+    was kept. Tightening a dedup rule changes the object list this stage returns and
+    would otherwise be invisible until someone deleted the artifact by hand — the
+    fifth time in one session that a stage's output turned out to depend on
+    something that was not one of its arguments.
+    """
+    return prompt_fingerprint(str(DEDUP_IOU), str(DEDUP_CONTAINMENT), str(MIN_AREA_FRACTION))

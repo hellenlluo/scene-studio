@@ -223,6 +223,39 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Scene-level actions. Same small-button treatment as the physics controls on the
+   other side, because they are the same kind of thing: one click, acts on the whole
+   scene, nothing to configure. */
+.export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.export-button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.export-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.export-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+/* The note names two filenames and two extensions; at the note's own colour they
+   read as prose and the extensions are the part being pointed at. */
+.note code {
+  color: var(--text);
+  font-size: 0.95em;
+}
+
 .panel h2 {
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -347,23 +380,6 @@ main {
   text-transform: uppercase;
 }
 
-.repair {
-  width: 100%;
-  margin-top: 1.25rem;
-  padding: 0.6rem;
-  background: var(--accent);
-  color: #0b0d11;
-  border: 0;
-  border-radius: 6px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.repair:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* The mesh filename, shown only on an open row. Monospace because it is an
    identifier you might copy into a path, not prose. */
 .object-id {
@@ -444,11 +460,6 @@ main {
   color: var(--muted);
 }
 .commit-button:disabled {
-  border-color: var(--line);
-  color: var(--muted);
-  cursor: default;
-}
-.repair:disabled {
   border-color: var(--line);
   color: var(--muted);
   cursor: default;

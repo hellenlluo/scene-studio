@@ -53,10 +53,10 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.pipeline import snapshot, vlm
-from app.pipeline.base import PipelineContext
+from app.pipeline.base import PipelineContext, prompt_fingerprint
 from app.schemas import ObjectVerdict, ObjectVerification, SceneGraph, VerifyResult
 
-__all__ = ["VerifyResult", "run"]
+__all__ = ["VerifyResult", "prompts_fingerprint", "run"]
 
 log = logging.getLogger(__name__)
 
@@ -78,8 +78,18 @@ present in the photo at all and reconstruction invented it.
 The reconstruction's shapes are rougher than the photo and its colours duller and \
 flatter; that alone is never a reason to flag something. Neither is an object \
 sitting at the wrong height, floating, or intersecting its neighbour — placement \
-is corrected by a later physics stage and is not your concern. Judge only whether \
-the thing exists in the photo. When in doubt, `ok`.
+is corrected by a later physics stage and is not your concern.
+
+**Do not use where an object sits in the reconstruction to decide where to look \
+for it in the photo.** Nothing has been solved yet, so an object is routinely \
+rendered on the wrong surface, in the wrong part of the room, or at the wrong \
+scale. Search the whole photo for something of that shape and colour, wherever it \
+may be. "There is no such thing on the table" is not a finding when the object was \
+never on the table.
+
+Every numbered object was cut from this photo by a segmenter, so the default is \
+strongly that it is real. Flag `external` only for something you cannot find \
+anywhere in the photo at any location. When in doubt, `ok`.
 
 Give a one-sentence `reason` for each naming what you saw."""
 
@@ -255,3 +265,8 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> VerifyResult:
             obj.supported_by = None
 
     return VerifyResult(graph=working, removed=unique)
+
+
+def prompts_fingerprint() -> str:
+    """Cache-key input, so editing either prompt re-runs this stage."""
+    return prompt_fingerprint(EXTERNAL_PROMPT, BUILTIN_PROMPT)

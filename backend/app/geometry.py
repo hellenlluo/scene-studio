@@ -11,6 +11,7 @@ loaded from disk, no I/O.
 """
 
 import math
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -18,6 +19,7 @@ from app.schemas import PartGeometry, SceneGraph, SceneObject, SupportSurface
 
 __all__ = [
     "candidate_hosts",
+    "dependents",
     "footprint_xy",
     "matrix_to_quat",
     "part_corners",
@@ -146,13 +148,20 @@ def _xy_overlap(a_low, a_high, b_low, b_high) -> float:
     return float(max(0.0, width) * max(0.0, depth))
 
 
-def _dependents(graph: SceneGraph, object_id: str) -> set[str]:
-    """Everything resting on this object, directly or transitively."""
+def dependents(objects: Iterable[SceneObject], object_id: str) -> set[str]:
+    """Everything resting on this object, directly or transitively.
+
+    Takes the object list rather than the graph so the two callers that need it can
+    share one walk: `candidate_hosts` asks it to keep a placement from closing a
+    cycle, and `support.contact` asks it because an object's own dependents are the
+    one set of things that cannot be holding it up.
+    """
+    objects = list(objects)
     found: set[str] = set()
     frontier = [object_id]
     while frontier:
         current = frontier.pop()
-        for obj in graph.objects:
+        for obj in objects:
             if obj.supported_by == current and obj.object_id not in found:
                 found.add(obj.object_id)
                 frontier.append(obj.object_id)
@@ -256,7 +265,7 @@ def candidate_hosts(
 
     width, depth = footprint_xy(obj)
     needed = width * depth * clearance
-    excluded = _dependents(graph, object_id) | {object_id}
+    excluded = dependents(graph.objects, object_id) | {object_id}
 
     hosts: list[SupportSurface] = []
     for other in graph.objects:

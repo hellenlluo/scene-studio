@@ -226,7 +226,36 @@ def observe(ctx: PipelineContext, segments: SegmentResult, depth: DepthResult):
     return observations, basis, floor_z
 
 
-def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
+def _refines(candidate: str | None, claim: str | None, parent_of: dict[str, str | None]) -> bool:
+    """Whether resting on `candidate` is consistent with a claim of `claim`.
+
+    A *refinement* is safe to adopt; a *contradiction* has to survive so the
+    certificate can report it. The distinction is whether the thing an object is
+    measurably resting on traces back down to the thing it was said to be on:
+
+        declared floor, resting on rug   -> the rug is on the floor      refinement
+        declared table, resting on book  -> the book is on that table    refinement
+        declared table, resting on floor -> the floor is not on a table  contradiction
+
+    "The floor" is the coarsest claim there is, so anything is consistent with it —
+    which is why an armchair labelled floor-supported and measurably resting on a
+    rug is a refinement, while a book labelled table-supported that reconstruction
+    dropped on the floor is not. Adopting that one would destroy the only record
+    that it is in the wrong place: its gap to the floor would be perfect, it would
+    be perfectly stable, and `touching_parent` would become vacuously true.
+    """
+    if claim is None:
+        return True
+    seen: set[str] = set()
+    while candidate is not None and candidate not in seen:
+        if candidate == claim:
+            return True
+        seen.add(candidate)
+        candidate = parent_of.get(candidate)
+    return False
+
+
+def resolve_supports(graph: SceneGraph, settings, reconsider: set[str] | None = None) -> SceneGraph:
     """Replace claimed support relations the geometry contradicts.
 
     `ObjectLabel.support_parent` is a VLM guess made two stages before any 3D
@@ -262,6 +291,23 @@ def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
       toppling condition; a corner overhanging a neighbour is not resting on it
     - a gap within `max_snap_m`, the same distance repair already refuses to move
       an object, beyond which the relation is more likely wrong than the position
+
+    **`reconsider` is the user-edit path, and it inverts the fallback.** `None` is
+    the pipeline: every object is arbitrated, and an unconfirmable claim is left
+    alone. A set names objects the user has just dragged, and only those are
+    rewritten — but for them the recorded parent is not a claim to defend, it is a
+    fact about where the object *used* to be. A drag carries no new label, so
+    without this the stale edge survives the edit and stage 6 closes the gap to it:
+    measured on `room2`, a book dropped on the side table at z=0.584 came back from
+    solve at z=0.015, on the floor under the table, because `supported_by` still
+    said floor.
+
+    So a reconsidered object takes the measurement, or failing that the nearest
+    surface, with no thumb on the scale for where it used to be. The *fallback* is
+    unchanged though: an object with nothing measurable under it keeps its edge, for
+    the same reason the pipeline leaves one alone. See the `not viable` branch —
+    dropping a stale edge to the floor there looks principled and quietly disables
+    every strategy that could put the object back.
     """
     if not graph.objects:
         return graph
@@ -274,14 +320,32 @@ def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
 
     def surface_under(child: SceneObject, parent: SceneObject) -> float | None:
         low, high = boxes[child.object_id]
-        return heights.under(parent, low, high, centre_only=True)
+        return heights.under(
+            parent,
+            low,
+            high,
+            centre_only=True,
+            base=heights.base_of(child) or float(low[2]),
+            slack=heights.burial_slack_m,
+        )
 
     def base_of(obj: SceneObject) -> float:
         measured = heights.base_of(obj)
         return measured if measured is not None else float(boxes[obj.object_id][0][2])
 
+    # The claimed graph, for the refinement test. Read before anything is
+    # rewritten, so a refinement is judged against what the labeller said rather
+    # than against half-updated state.
+    parent_of = {o.object_id: o.supported_by for o in graph.objects}
+
     objects = []
     for obj in graph.objects:
+        # Untouched by an edit-scoped pass. Returned as-is rather than re-arbitrated,
+        # so committing a drag cannot quietly reparent the far side of the room.
+        if reconsider is not None and obj.object_id not in reconsider:
+            objects.append(obj)
+            continue
+
         base = base_of(obj)
 
         # Every candidate parent, plus the floor as `None`, scored by how far the
@@ -299,7 +363,12 @@ def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
             if surface is not None:
                 scored.append((abs(base - surface), other.object_id))
 
-        claimed = obj.supported_by
+        # A reconsidered object's recorded parent describes where it was before the
+        # user moved it, so it is evidence about the past rather than a claim about
+        # the present. Dropped here so neither the refinement test nor the margin
+        # below can reinstate it.
+        stale = reconsider is not None
+        claimed = None if stale else obj.supported_by
         viable = [entry for entry in scored if entry[0] <= settings.max_snap_m]
 
         if not viable:
@@ -307,34 +376,83 @@ def resolve_supports(graph: SceneGraph, settings) -> SceneGraph:
             # claim is unverifiable rather than refuted, and replacing a considered
             # guess with a worse one is not an improvement — this is the badly
             # reconstructed object, not the badly labelled one.
+            #
+            # **True for a reconsidered object too, and that is not obvious.** An
+            # earlier version dropped a stale edge to the floor here, reasoning that
+            # a drop into open space has no parent. It reads well and it destroys
+            # the useful information: measured on `room2`, the plate 138 mm off the
+            # side table lost its recorded parent, and with `supported_by=None`
+            # every strategy that could have put it back declined — the floor is the
+            # one support an object is always over, so `_slide_onto_support` skips
+            # it and containment has nothing to aim at. Recording "on the floor" for
+            # something floating half a metre up also just swaps a useful wrong
+            # answer for a useless one.
+            #
+            # The edge says where the object *belongs*; the geometry says where it
+            # is. Keeping the edge is what lets the rest of the system close the gap.
             objects.append(obj)
             continue
 
-        best_score, best = min(viable)
+        # Keyed on the score alone. Bare `min` falls through to comparing the second
+        # element on an exact tie, and that element is `str | None`, which raises
+        # `TypeError: '<' not supported between instances of 'str' and 'NoneType'`.
+        # Not reproducible on rasterised geometry — it needs two scores equal to the
+        # last bit, and no fixture here gets there — so this is a latent crash rather
+        # than an observed one, kept keyed because the comparison is meaningless
+        # either way: which of two equidistant surfaces sorts first is not a fact
+        # about the scene.
+        best_score, best = min(viable, key=lambda entry: entry[0])
+        # `None` for a stale edge, so the margin branch below is skipped entirely and
+        # the choice is measurement-then-nearest. Not merely a consequence of
+        # `claimed = None` above: that would make this the *floor's* score and
+        # quietly defend the floor against a table the object is plainly nearer to,
+        # which is the original bug wearing a different hat.
+        claim_score = (
+            None if stale else next((score for score, who in viable if who == claimed), None)
+        )
 
-        # Geometry vetoes the label; it does not replace it. Nearest-surface alone
-        # is wrong on a near tie, because heights collide — a teacup's rim sits at
-        # the same height as the base of the book beside it, and "nearest" then
-        # reads a book as resting on a teacup. The label was produced by a model
-        # looking at the photo and is the better answer whenever geometry does not
-        # clearly contradict it, so it survives unless something beats it by more
-        # than `support_claim_margin_m`.
-        claim_score = next((score for score, who in viable if who == claimed), None)
-        if claim_score is not None and claim_score <= best_score + settings.support_claim_margin_m:
+        # What the object is *measurably* resting on, read off its own underside
+        # rather than scored against candidates. `support.contact` answers this
+        # directly now, so the nearest-surface scoring above only decides which
+        # candidates are viable at all.
+        measured = heights.contact(
+            obj, graph.objects, graph.floor_height_m, settings.max_support_gap_m
+        ).resting_on
+
+        # Adopt the measurement when it *refines* the claim, keep the claim when it
+        # contradicts it. See `_refines`. This replaces an earlier
+        # `support_claim_margin_m` comparison, which needed a threshold and got it
+        # wrong three ways: it let a book rest on a teacup whose rim happened to be
+        # at the right height, it cancelled out a deliberate demotion of the floor,
+        # and at 50 mm it was wider than the ~16 mm rug it was arbitrating — so an
+        # armchair measurably resting on a rug stayed recorded as floor-supported,
+        # and the solver spent every round pulling it 21 mm down through the rug.
+        # A reachability test has no threshold to get wrong.
+        if measured is not None and _refines(measured, claimed, parent_of):
+            chosen = measured
+        elif (
+            claim_score is not None and claim_score <= best_score + settings.support_claim_margin_m
+        ):
             chosen = claimed
         else:
             chosen = best
-            # Two different reasons to overrule, and the log has to say which: a
-            # claim no surface confirms is a labelling error, a claim beaten by a
-            # nearer surface is a placement one, and they are fixed in different
-            # stages.
+
+        # Logged against what the object actually carried, not against `claimed` —
+        # which a stale edge has already had cleared, so reporting it would say
+        # every reconsidered object came from the floor.
+        was = obj.supported_by
+        if chosen != was:
             why = (
-                "no measurable contact with the claim"
+                "re-derived after a user edit"
+                if stale
+                else f"measurably resting on it, refining a claim of {was or 'the floor'}"
+                if chosen == measured
+                else "no measurable contact with the claim"
                 if claim_score is None
                 else f"{1000 * (claim_score - best_score):.0f} mm nearer, "
                 f"past the {1000 * settings.support_claim_margin_m:.0f} mm margin"
             )
-            log.info("%s: support %s -> %s (%s)", obj.object_id, claimed, chosen, why)
+            log.info("%s: support %s -> %s (%s)", obj.object_id, was, chosen, why)
         objects.append(obj.model_copy(update={"supported_by": chosen}))
 
     return graph.model_copy(update={"objects": objects})

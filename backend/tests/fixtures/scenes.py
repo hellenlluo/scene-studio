@@ -25,6 +25,7 @@ __all__ = [
     "cabinet_overlapping_table",
     "kitchen",
     "mug_floating_above_table",
+    "mug_overhanging_its_support",
     "mug_sunk_into_table",
 ]
 
@@ -157,4 +158,50 @@ def cabinet_overlapping_table() -> SceneGraph:
     cabinet = graph.get("cabinet")
     _, y, z = cabinet.position_m
     cabinet.position_m = (0.7, y, z)  # 0.2 m into the table
+    return graph
+
+
+def mug_overhanging_its_support() -> SceneGraph:
+    """A sound object whose *bounding box* centre hangs off its support.
+
+    Not a broken scene — the third one that is not. A heavy body sitting well
+    inside the tabletop with a light handle reaching 480 mm past its edge is
+    resting, stable, and ordinary, and the only thing wrong with it is what a
+    bounding box says about it: the box centre lands 193 mm beyond the table while
+    the centre of mass stays 50 mm inside it.
+
+    This is `room.png`'s lamp in miniature — shade overhanging base — and
+    `room2.png`'s armchair in reverse, where the box centre is over the rug and the
+    mass is not. The toppling condition is about weight, so one of the two centres
+    is the right one to test and it is not the box.
+    """
+    graph = kitchen()
+    mug = graph.get("mug")
+    mug.position_m = (0.55, 0.0, 0.80)
+    mug.parts = [
+        _part("body", (0.09, 0.09, 0.10), density=8000.0),
+        _part("handle", (0.50, 0.04, 0.02), origin=(0.28, 0.0, 0.0), parent="body", density=30.0),
+    ]
+    return graph
+
+
+def mug_adrift_from_its_support() -> SceneGraph:
+    """Off its support laterally, and touching nothing at all.
+
+    The gap between repair's two strategies, and `room2.png`'s plate in miniature:
+    that plate sits 138 mm outside the side table it is recorded as resting on and
+    53 mm below its top, so it touches neither the table nor anything else. With no
+    contact patch there is no hull for `_slide_onto_support` to aim at, and
+    `_snap_to_support` translates in z alone and so cannot bring it back over the
+    table. Measured before the fallback existed, five repair rounds proposed not one
+    action for it.
+
+    Distinct from `mug_overhanging_its_support`, which is a *sound* scene the box
+    test misreads. This one is genuinely broken.
+    """
+    graph = kitchen()
+    mug = graph.get("mug")
+    # Table top spans x [-0.6, 0.6] at z = 0.75. Clear of it in x, level with it in
+    # z, so nothing is under the mug and nothing is beside it either.
+    mug.position_m = (0.9, 0.0, 0.80)
     return graph

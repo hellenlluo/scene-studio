@@ -118,7 +118,9 @@ def _split_scale(raw) -> tuple[np.ndarray, float]:
     return factors / isotropic, isotropic
 
 
-def _load_glb(data: bytes, max_faces: int) -> tuple[trimesh.Trimesh, float | None, bool] | None:
+def _load_glb(
+    data: bytes, max_faces: int
+) -> tuple[trimesh.Trimesh, float | None, bool, trimesh.Trimesh | None] | None:
     """Return the mesh to store, plus the volume and watertightness to trust.
 
     The volume is measured *before* decimation and carried separately, because the
@@ -158,7 +160,9 @@ def _load_glb(data: bytes, max_faces: int) -> tuple[trimesh.Trimesh, float | Non
     volume = float(welded.volume) if watertight else None
 
     if len(loaded.faces) <= max_faces:
-        return loaded, volume, watertight
+        # Under the cap nothing is decimated, so the visual mesh *is* the original
+        # and there is no second copy worth storing.
+        return loaded, volume, watertight, None
 
     # Decimation discards UVs and the material with them — measured: a mesh that
     # arrives as TextureVisuals with a 1024x1024 base colour map comes back as
@@ -173,7 +177,11 @@ def _load_glb(data: bytes, max_faces: int) -> tuple[trimesh.Trimesh, float | Non
         len(simplified.faces),
         ", losing its texture" if textured else "",
     )
-    return simplified, volume, watertight
+    # The closed original travels alongside the decimated one: `inertia` needs a
+    # surface it can decompose and weigh, and this is the last point at which one
+    # exists. Welded rather than raw, because a textured glTF arrives split at
+    # every UV seam and CoACD would decompose the seams as holes.
+    return simplified, volume, watertight, welded
 
 
 def _download_mesh(url: str, max_faces: int):
@@ -271,7 +279,7 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> ReconstructionResult:
             objects.append(_failed(mask.object_id, "reconstruction returned no mesh"))
             continue
 
-        mesh, source_volume, source_watertight = entry
+        mesh, source_volume, source_watertight, original = entry
         info = by_index.get(index, {})
         anisotropy, isotropic = _split_scale(info.get("scale"))
         # Proportions are shape, and shape belongs to the mesh. What is left for the
@@ -280,6 +288,13 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> ReconstructionResult:
 
         path = workdir / f"{mask.object_id}.glb"
         path.write_bytes(trimesh.Scene(mesh).export(file_type="glb"))
+
+        # Only written when decimation actually happened; otherwise the visual mesh
+        # is the original and a second copy would be dead weight on disk.
+        source_path = None
+        if original is not None:
+            source_path = workdir / f"{mask.object_id}.source.glb"
+            source_path.write_bytes(trimesh.Scene(original).export(file_type="glb"))
 
         translation = _unwrap(info.get("translation"))
         objects.append(
@@ -300,6 +315,7 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> ReconstructionResult:
                         part_id="body",
                         name="body",
                         visual_mesh_path=str(path),
+                        source_mesh_path=str(source_path) if source_path else None,
                         dims_m=tuple(float(v) for v in mesh.extents),
                         source_volume_m3=source_volume,
                         source_watertight=source_watertight,

@@ -103,16 +103,29 @@ MIN_PIECE_EXTENT_M = 1e-3
 
 
 def _load_visual(part: PartGeometry) -> trimesh.Trimesh | None:
-    """The part's visual mesh, or None when there is no usable file.
+    """The best mesh available for physics, or None when there is no usable file.
+
+    **The pre-decimation original when there is one.** `visual_mesh_path` is what
+    the browser downloads, and it is decimated to fit `max_mesh_faces`; decimation
+    opens the surface, so building collision geometry from it let a visual budget
+    decide a physical fact. Measured on `room2.png`: an armchair that crossed the
+    face cap was decomposed into hulls that covered none of its lower 27.9%, so it
+    had no legs to stand on, fell 589 mm, and took the pillow resting on it down
+    992 mm. `source_mesh_path` is the same object before any of that.
 
     A missing file degrades to the OBB path rather than raising, for the same
     reason `app.export.gltf` falls back to a box: a stage that cannot finish
     because one asset went astray costs the whole scene, and the proxy tier
     already records that the geometry is approximate.
     """
-    if not part.visual_mesh_path:
+    chosen = part.source_mesh_path or part.visual_mesh_path
+    if not chosen:
         return None
-    path = Path(part.visual_mesh_path)
+    path = Path(chosen)
+    if not path.exists() and part.visual_mesh_path and chosen != part.visual_mesh_path:
+        # The original is an optimisation, not a requirement — a scene stored before
+        # it existed has only the decimated mesh, and that is still better than a box.
+        path = Path(part.visual_mesh_path)
     if not path.exists():
         log.warning(
             "visual mesh %s missing for part %s; falling back to its box", path, part.part_id

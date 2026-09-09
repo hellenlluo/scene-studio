@@ -61,7 +61,6 @@ TIMESTEP_S = "0.002"
 CONTACT_SOLREF = "0.005 1"
 CONTACT_SOLIMP = "0.99 0.999 0.001"
 
-
 def _add_contact_defaults(root: ET.Element) -> None:
     default = ET.SubElement(root, "default")
     ET.SubElement(default, "geom", {"solref": CONTACT_SOLREF, "solimp": CONTACT_SOLIMP})

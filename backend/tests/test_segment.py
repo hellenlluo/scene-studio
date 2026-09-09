@@ -147,3 +147,60 @@ def test_deduplication_is_order_independent():
 
 def test_nothing_in_nothing_out():
     assert _deduplicate([]) == []
+
+
+# --- a part is not a second object ---------------------------------------------
+
+
+def _det(concept: str, score: float, box):
+    """A detection whose mask is the given (x0, y0, x1, y1) rectangle."""
+    mask = np.zeros((100, 100), bool)
+    x0, y0, x1, y1 = box
+    mask[y0:y1, x0:x1] = True
+    return _Detection(concept=concept, score=score, mask=mask)
+
+
+def test_a_detection_inside_another_is_dropped_as_a_part():
+    """The observed failure: an open vocabulary names a whole and its part, and the
+    segmenter returns both, nested.
+
+    Measured on `room2.png` — the "ceramic vase" mask sat 99% inside the "potted
+    plant" mask, but the plant is three times the area so IoU was only 0.38 and the
+    scene carried the vase twice, once alone and once with flowers in it.
+    """
+    plant = _det("potted plant", 0.8, (10, 10, 60, 90))
+    vase = _det("ceramic vase", 0.9, (20, 55, 50, 88))  # higher score, wholly inside
+    kept = {d.concept for d in _deduplicate([plant, vase])}
+    assert kept == {"potted plant"}, "the whole survives, not the higher-scoring part"
+
+
+def test_two_objects_that_merely_overlap_both_survive():
+    """Containment, not overlap. Adjacent or partly overlapping detections are two
+    objects and both belong in the scene."""
+    a = _det("book", 0.9, (10, 10, 50, 50))
+    b = _det("mug", 0.8, (40, 40, 80, 80))  # ~6% of b is inside a
+    kept = {d.concept for d in _deduplicate([a, b])}
+    assert kept == {"book", "mug"}
+
+
+def test_the_iou_rule_still_keeps_the_higher_score():
+    """The two rules disagree about who survives and must not be merged: IoU keeps
+    the better score, containment keeps the larger."""
+    sofa = _det("sofa", 0.9, (10, 10, 60, 60))
+    couch = _det("couch", 0.7, (11, 11, 60, 60))  # near-identical, IoU well over 0.7
+    kept = {d.concept for d in _deduplicate([sofa, couch])}
+    assert kept == {"sofa"}
+
+
+def test_the_surviving_phrase_is_recorded_on_the_mask():
+    """The phrase that found a mask is the strongest evidence about what the object
+    is, and stage 3's second pass used to re-derive it from pixels having never been
+    told it — a bookshelf came back as `book`, an armchair as `towel`.
+
+    `_object_id` argues at length against naming *ids* after the phrase, and it is
+    right; this carries the phrase alongside the positional id rather than instead
+    of it.
+    """
+    det = _det("bookshelf", 0.9, (10, 10, 60, 90))
+    kept = _deduplicate([det])
+    assert kept[0].concept == "bookshelf"

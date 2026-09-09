@@ -25,6 +25,10 @@ export type SceneEnvelope = Omit<components['schemas']['SceneEnvelope'], 'spec'>
 }
 export type SceneSummary = components['schemas']['SceneSummary']
 export type RepairResponse = components['schemas']['RepairResponse']
+export type SceneEditResponse = Omit<
+  components['schemas']['SceneEditResponse'],
+  'scene' | 'actions'
+> & { scene: SceneEnvelope; actions: RepairAction[] }
 export type Certificate = components['schemas']['Certificate']
 export type SceneObject = components['schemas']['SceneObject']
 export type ScaleCheck = components['schemas']['ScaleCheck']
@@ -56,11 +60,13 @@ export const api = {
   // cannot disagree with the scene on screen the way a cached `scene.xml` URL could.
   scenePhysics: (sceneId: string) =>
     request<PhysicsBundle>(`/api/scenes/${sceneId}/physics`),
-  // Commit: the server re-solves from the edit and re-certifies, but does not
-  // repair. Repair changes objects the user did not touch, which is a surprising
-  // thing for a drag to do, so it stays its own deliberate action.
+  // Commit: the server re-derives what each moved object rests on, re-solves,
+  // certifies, and repairs — every step bounded to the objects the edit touched
+  // and whatever rests on them. Nothing outside that set moves, which was the
+  // reason repair used to be refused here; `actions` reports what it did, so a
+  // commit is never a silent change.
   editScene: (sceneId: string, edit: SceneEditRequest) =>
-    request<SceneEnvelope>(`/api/scenes/${sceneId}`, {
+    request<SceneEditResponse>(`/api/scenes/${sceneId}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(edit),

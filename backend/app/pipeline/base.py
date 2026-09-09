@@ -6,9 +6,11 @@ depth estimation every time.
 """
 
 import hashlib
+import inspect
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -51,6 +53,36 @@ def _dump(value: object) -> object:
     if isinstance(value, list | tuple):
         return [_dump(v) for v in value]
     return value
+
+
+def prompt_fingerprint(*texts: str) -> str:
+    """A short hash of the prompts a stage sends, for use as a cache-key input.
+
+    A VLM stage's output depends on its prompt as surely as on its upstream model,
+    and a prompt is not one of its arguments — so without this, editing one changes
+    nothing until somebody deletes the artifact by hand. That is not hypothetical:
+    the inventory, labelling and verification prompts were each edited during one
+    session and each silently served the previous answer, the last one after the
+    edit had already been shown to fix the bug it was written for.
+    """
+    return hashlib.sha256("\x00".join(texts).encode()).hexdigest()[:12]
+
+
+def source_fingerprint(*modules: ModuleType) -> str:
+    """A hash of these modules' source, for use as a cache-key input.
+
+    Settings, prompts and thresholds can be enumerated and keyed on; the code that
+    consumes them cannot. Six times in one session a stage was edited, re-run, and
+    silently served its previous artifact — twice after the fix had already been
+    demonstrated correct by calling the stage directly. The failure mode is
+    expensive precisely because it looks like the fix not working.
+
+    Only local stages carry this. `segment` and `reconstruct` are paid, they change
+    rarely, and re-running them on a comment edit would cost real money; they stay
+    keyed on their explicit inputs.
+    """
+    payload = "\x00".join(Path(inspect.getfile(m)).read_text() for m in modules)
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
 def cache_key(ctx: PipelineContext, stage: StageName, *inputs: object) -> str:

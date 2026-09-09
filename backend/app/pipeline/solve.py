@@ -51,6 +51,7 @@ from app.schemas import (
     Provenance,
     ScaleAnchor,
     SceneGraph,
+    SceneObject,
     SegmentResult,
     SolveDiagnostics,
     SolveResult,
@@ -86,14 +87,12 @@ ROUND_TOLERANCE_M = 2e-3
 PHYSICS_WEIGHT = 0.5
 
 
-def _pack(graph: SceneGraph) -> np.ndarray:
-    return np.concatenate([[np.log(obj.scale), *obj.position_m] for obj in graph.objects]).astype(
-        float
-    )
+def _pack(objects: list[SceneObject]) -> np.ndarray:
+    return np.concatenate([[np.log(obj.scale), *obj.position_m] for obj in objects]).astype(float)
 
 
-def _unpack(graph: SceneGraph, x: np.ndarray) -> None:
-    for index, obj in enumerate(graph.objects):
+def _unpack(objects: list[SceneObject], x: np.ndarray) -> None:
+    for index, obj in enumerate(objects):
         block = x[index * 4 : index * 4 + 4]
         obj.scale = float(np.exp(block[0]))
         obj.position_m = (float(block[1]), float(block[2]), float(block[3]))
@@ -107,7 +106,7 @@ _SCALE_FACTOR = 4.0
 _POSITION_RANGE_M = 1.0
 
 
-def _bounds(graph: SceneGraph, observations) -> tuple[np.ndarray, np.ndarray]:
+def _bounds(objects: list[SceneObject], observations) -> tuple[np.ndarray, np.ndarray]:
     """Keep the search near the measurement rather than unbounded.
 
     **An object with no depth observation has its scale frozen.** Nothing else in
@@ -122,7 +121,7 @@ def _bounds(graph: SceneGraph, observations) -> tuple[np.ndarray, np.ndarray]:
     It binds on the fixtures, and on any scene assembled by hand.
     """
     low, high = [], []
-    for obj in graph.objects:
+    for obj in objects:
         logged = np.log(obj.scale)
         measured = obj.object_id in observations
         span = np.log(_SCALE_FACTOR) if measured else 0.0
@@ -162,14 +161,17 @@ class _Penetrations:
 def _residuals(
     x: np.ndarray,
     graph: SceneGraph,
+    free: list[SceneObject],
     observations: dict,
     weights: SolveWeights,
     anchors: list[ScaleAnchor],
     settled: dict[str, np.ndarray] | None,
     supports: support.SupportHeights,
     penetrations: _Penetrations,
+    edits: dict[str, tuple[np.ndarray | None, np.ndarray | None]],
 ) -> np.ndarray:
-    _unpack(graph, x)
+    _unpack(free, x)
+    ctx_slack = supports.burial_slack_m
 
     boxes = {obj.object_id: world_aabb(obj) for obj in graph.objects}
     out: list[float] = []
@@ -182,8 +184,19 @@ def _residuals(
         if observed is not None:
             # Both halves matter: extent alone fixes size but lets the object drift,
             # centre alone fixes position but lets it grow without bound.
-            out += list(weights.depth * (centre - observed.centre))
-            out += list(weights.depth * (extent - observed.extent))
+            #
+            # Either half may be aimed at the user's edit instead of at the depth
+            # measurement — see `_edit_priors`. Substituted rather than added, so the
+            # residual vector keeps its length and the two never pull against each
+            # other: a term that both held the measurement and honoured the edit
+            # would just split the difference, which is the behaviour being fixed.
+            want_centre, want_extent = edits.get(obj.object_id, (None, None))
+            if want_centre is None:
+                want_centre = observed.centre
+            if want_extent is None:
+                want_extent = observed.extent
+            out += list(weights.depth * (centre - want_centre))
+            out += list(weights.depth * (extent - want_extent))
 
         # Support: the gap to whatever this rests on, floor or object.
         support_top = graph.floor_height_m
@@ -194,7 +207,20 @@ def _residuals(
             # of a sofa's *backrest* rather than its seat, and it comes from stored
             # `dims_m` rather than from the mesh — 8.5 mm out on a reconstructed rug.
             # See `app.pipeline.support`.
-            measured = supports.under(parent, low, high) if parent is not None else None
+            # The child's own base is passed so the surface picked is the one it
+            # stands on rather than the parent's highest — see `support.under`.
+            child_base = supports.base_of(obj)
+            measured = (
+                supports.under(
+                    parent,
+                    low,
+                    high,
+                    base=child_base if child_base is not None else float(low[2]),
+                    slack=ctx_slack,
+                )
+                if parent is not None
+                else None
+            )
             support_top = measured if measured is not None else float(boxes[obj.supported_by][1][2])
         # The child's underside, measured the same way. Both sides have to come from
         # the same geometry or the residual closes onto something that is not the
@@ -203,25 +229,66 @@ def _residuals(
         # amount its `dims_m` box disagrees with its collision mesh.
         measured_base = supports.base_of(obj)
         base = measured_base if measured_base is not None else float(low[2])
-        out.append(weights.support * (base - support_top))
+        # One query for the whole contact — the minimum clearance over this object's
+        # own underside — rather than a lowest-point-anywhere minus a
+        # highest-surface-anywhere. For a solid box those agree; for a pedestal they
+        # are two different places, and the side table's 9.2 mm "gap" was one low
+        # foot compared against a rug sampled under the empty air beneath its top.
+        measured_gap = supports.gap_to(
+            graph.get(obj.supported_by) if obj.supported_by else None,
+            obj,
+            graph.floor_height_m,
+        )
+        gap = measured_gap if measured_gap is not None else base - support_top
+        # Deliberately *not* dead-zoned, unlike penetration below. This term is not
+        # only a penalty, it is the coupling: `E_supp` is what carries one object's
+        # scale to the next, which is the claim the whole per-object formulation
+        # rests on. Silencing it inside the tolerance silences it almost everywhere,
+        # and a scale anchor on a table then stops reaching the mug on it — measured,
+        # the mug ended 819 mm off its own support. A term that transmits a
+        # constraint has to stay linear; only a term that merely forbids something
+        # can go quiet once it is satisfied.
+        out.append(weights.support * gap)
 
         # Containment: the lateral counterpart of the term above. `support` closes
         # the vertical gap and is indifferent to *where* the contact is, so without
         # this an object satisfies it just as well hovering the correct 0 mm over
         # empty air a metre to the left of the table it is recorded as resting on.
-        # One-sided, so an object already over its support contributes nothing.
-        # Guarded on the weight, not multiplied by it. A zero weight has to add no
-        # residuals at all rather than zero-valued ones: `least_squares` reaches a
-        # different local minimum when the residual vector merely changes length,
-        # and on the kitchen fixture that flipped an assertion about where a
-        # re-solved mug lands. "Off" must mean the objective is unchanged.
+        #
+        # Aimed at the nearest point that actually has surface under it, not at the
+        # parent's bounding box. The box version had to ship disabled: a bookshelf's
+        # AABB is mostly solid shelf, so pulling a vase's centre "inside" it drove
+        # the vase into the carcass — 34 mm of burial at the weight that fixed the
+        # placement. Now that the grid keeps every surface in a column, "where could
+        # this rest" is answerable directly and the pull goes somewhere the object
+        # can stand.
+        #
+        # Silent once the centre is over surface, so a correctly placed object pays
+        # nothing and this cannot recentre a scene that was already right. Guarded on
+        # the weight rather than multiplied by it: a zero weight has to add no
+        # residuals at all, because `least_squares` reaches a different local minimum
+        # when the residual vector merely changes length.
         if weights.containment and obj.supported_by and obj.supported_by in boxes:
-            parent_low, parent_high = boxes[obj.supported_by]
-            centre_xy = centre[:2]
-            outside = np.maximum(
-                0.0, np.maximum(parent_low[:2] - centre_xy, centre_xy - parent_high[:2])
+            parent = graph.get(obj.supported_by)
+            over = (
+                None
+                if parent is None
+                else supports.under(
+                    parent, low, high, centre_only=True, base=base, slack=supports.burial_slack_m
+                )
             )
-            out += list(weights.containment * outside)
+            # Always two residuals, zero when satisfied, never absent. `least_squares`
+            # needs a fixed-length residual vector, and this term switches off exactly
+            # when the object crosses onto its support — emitting it conditionally
+            # changed the vector from 17 entries to 15 mid-solve.
+            offset = np.zeros(2)
+            if parent is not None and over is None:
+                target = supports.nearest_support_xy(
+                    parent, low, high, base, supports.burial_slack_m
+                )
+                if target is not None:
+                    offset = centre[:2] - target
+            out += list(weights.containment * offset)
 
         if settled is not None and obj.object_id in settled:
             out += list(PHYSICS_WEIGHT * (np.asarray(obj.position_m) - settled[obj.object_id]))
@@ -236,7 +303,7 @@ def _residuals(
     # `app.pipeline.penetration`.
     for first, second in penetrations.pairs:
         depth = penetrations.between(graph.get(first), graph.get(second))
-        out.append(weights.penetration * depth)
+        out.append(weights.penetration * max(0.0, depth - penetrations.tolerance))
 
     # Support contacts, scored only past the tolerance. `penetration.pairs` drops
     # them because the support term is already driving those two surfaces together
@@ -262,6 +329,52 @@ def _residuals(
         out.append(100.0 * float((high - low)[anchor.axis] - anchor.value_m))
 
     return np.asarray(out, dtype=float)
+
+
+def _edit_priors(
+    graph: SceneGraph,
+) -> dict[str, tuple[np.ndarray | None, np.ndarray | None]]:
+    """Where the *user* says each object is, for the objects they have moved.
+
+    **Depth measures the scene once, at reconstruction. After that the person
+    looking at it is the better witness to where a thing goes.** The stored
+    `DepthObservation` is a fact about the photo and stays one — nothing here
+    rewrites it — but it stops being the target the depth term aims at for a
+    property the user has since set by hand.
+
+    Without this a drag is not merely outvoted, it is erased. Measured on `room2`,
+    dragging the lamp and re-solving kept **0%** of a 0.5 m move and 0% of a 1.0 m
+    move; a 2.0 m move survived only 81%, and only because `_POSITION_RANGE_M`
+    stops the solver reaching back far enough to finish the job. The cause is
+    arithmetic rather than tuning: depth contributes six residuals per object, three
+    of them the centre, against one for support, so the stale centre wins whatever
+    `weights.depth` is set to.
+
+    Per property, not per object, because the two measurements are independent. A
+    drag says nothing about size, so `extent` keeps coming from depth; a typed scale
+    says nothing about position, so `centre` does. Only the half the user actually
+    set is replaced.
+
+    The target is the object's world AABB at solve entry, which makes the residual
+    exactly zero to begin with. It grows only as support, penetration or settling
+    push the object off the mark — so the edit holds unless physics says it cannot,
+    which is the whole intent. Note this is a *soft* prior at `weights.depth`, not a
+    pin: a drop that would leave an object floating or buried still gets corrected.
+    `ScaleAnchor` remains the hard constraint, for a typed dimension the user
+    genuinely knows.
+    """
+    priors: dict[str, tuple[np.ndarray | None, np.ndarray | None]] = {}
+    for obj in graph.objects:
+        moved = obj.provenance.get("position_m") == Provenance.USER
+        resized = obj.provenance.get("scale") == Provenance.USER
+        if not moved and not resized:
+            continue
+        low, high = world_aabb(obj)
+        priors[obj.object_id] = (
+            (low + high) / 2.0 if moved else None,
+            high - low if resized else None,
+        )
+    return priors
 
 
 def _settle(ctx: PipelineContext, graph: SceneGraph) -> dict[str, np.ndarray]:
@@ -334,6 +447,7 @@ def run(
     segments: SegmentResult | None,
     weights: SolveWeights,
     anchors: list[ScaleAnchor] | None = None,
+    free_ids: set[str] | None = None,
 ) -> SolveResult:
     """Solve the scene, starting from wherever it currently is.
 
@@ -343,11 +457,15 @@ def run(
     where reconstruction did. `_bounds` allows a metre either way of the starting
     position, so an edit also shifts the region searched.
 
-    Whether an edit should be *held* rather than merely seeded is a separate
-    question and deliberately not answered here. A typed dimension is a measurement
-    the user has and depth does not, and that already is a hard constraint — see
-    `ScaleAnchor`. A dragged position is an eyeball estimate, and treating it as
-    infinitely certain would discard the depth measurement in its favour.
+    **Seeding alone turned out not to be enough, and `_edit_priors` is the rest of
+    it.** Starting from the user's pose does not help when a term still points at
+    the old one: the stale depth centre pulled a dragged lamp all the way home, so
+    the seed decided only which side of the answer the solver approached from.
+    Where the user has set a property by hand, the depth term now aims at what they
+    set rather than at what reconstruction measured — still softly, at
+    `weights.depth`, so support and penetration can overrule an impossible drop.
+    `ScaleAnchor` remains the only hard constraint, for a dimension the user has
+    actually measured.
     """
     anchors = anchors or []
     working = graph.model_copy(deep=True)
@@ -368,7 +486,28 @@ def run(
                 centre_m=tuple(float(v) for v in found.centre),
                 extent_m=tuple(float(v) for v in found.extent),
             )
-    lower, upper = _bounds(working, observations)
+    # Which objects the solve may move. `None` is the whole scene, which is what a
+    # pipeline run wants. An *edit* wants only what the user touched and whatever
+    # rests on it: a full re-solve for a one-object drag moves objects nobody
+    # touched — measured on `room2.png`, a commit took the scale axis from 6
+    # failures to 9, and with 6 of 16 objects sitting within 4 mm of the tolerance
+    # line, that reads as objects flickering between certified and not for no
+    # visible reason. The edit endpoint already declines to run `repair` for exactly
+    # this reason; re-solving everything was doing the same thing less visibly.
+    #
+    # The trade is real: freezing the rest gives up the coupling that propagates
+    # scale between objects, which is the whole point of the formulation. That is
+    # right for a drag, whose intent is local, and wrong for a pipeline run.
+    free = [obj for obj in working.objects if free_ids is None or obj.object_id in free_ids]
+    if not free:
+        return SolveResult(
+            graph=working, diagnostics=SolveDiagnostics(converged=True, settled=True)
+        )
+
+    lower, upper = _bounds(free, observations)
+    # Read once, before anything moves: these are targets, and re-reading them from a
+    # partly-solved graph would make each round chase the last one's answer.
+    edits = _edit_priors(working)
 
     settled: dict[str, np.ndarray] | None = None
     total_iterations = 0
@@ -392,19 +531,29 @@ def run(
         # "Initial guess is outside of provided bounds". Clipping is right rather
         # than merely quiet — the value is inside the interval to within float
         # precision, and the alternative is failing a solve over one ulp.
-        before = np.clip(_pack(working), lower, upper)
+        before = np.clip(_pack(free), lower, upper)
         result = optimize.least_squares(
             _residuals,
             before,
             bounds=(lower, upper),
-            args=(working, observations, weights, anchors, settled, supports, penetrations),
+            args=(
+                working,
+                free,
+                observations,
+                weights,
+                anchors,
+                settled,
+                supports,
+                penetrations,
+                edits,
+            ),
             # Finite differences: the residual runs a physics-free geometry pass, so
             # an analytic Jacobian would be a second implementation of it to keep in
             # step for no gain at this problem size.
             jac="2-point",
             max_nfev=200 * len(before),
         )
-        _unpack(working, result.x)
+        _unpack(free, result.x)
         total_iterations += int(result.nfev)
 
         moved = float(np.max(np.abs(result.x - before)))
@@ -435,9 +584,20 @@ def run(
         if converged and is_settled:
             break
 
+    # Only what this solve actually estimated, and never over a `USER` mark.
+    #
+    # Both restrictions matter. Stamping a frozen object claims an estimate that was
+    # never made — it has no Jacobian column and no variance to report. Stamping over
+    # `USER` is worse: `_edit_priors` reads that flag, so the blanket version erased
+    # its own input, and a second commit would have gone back to being outvoted by
+    # depth with nothing in the graph left to say why.
+    free_set = {obj.object_id for obj in free}
     for obj in working.objects:
-        obj.provenance["scale"] = Provenance.DERIVED
-        obj.provenance["position_m"] = Provenance.DERIVED
+        if obj.object_id not in free_set:
+            continue
+        for field in ("scale", "position_m"):
+            if obj.provenance.get(field) != Provenance.USER:
+                obj.provenance[field] = Provenance.DERIVED
 
     return SolveResult(
         graph=working,
@@ -447,21 +607,40 @@ def run(
             settled=is_settled,
             max_settle_drift_m=max_drift,
             residual_by_term=_term_costs(
-                working, observations, weights, anchors, settled, supports, penetrations
+                working,
+                working.objects,
+                observations,
+                weights,
+                anchors,
+                settled,
+                supports,
+                penetrations,
+                edits,
             ),
-            scale_variance=_scale_variance(working, result),
+            scale_variance=_scale_variance(free, result),
         ),
     )
 
 
 def _term_costs(
-    graph, observations, weights, anchors, settled, supports, penetrations
+    graph, free, observations, weights, anchors, settled, supports, penetrations, edits
 ) -> dict[str, float]:
     """Each term's share of the final cost, for seeing which one is binding."""
-    x = _pack(graph)
+    x = _pack(graph.objects)
     full = float(
         np.sum(
-            _residuals(x, graph, observations, weights, anchors, settled, supports, penetrations)
+            _residuals(
+                x,
+                graph,
+                graph.objects,
+                observations,
+                weights,
+                anchors,
+                settled,
+                supports,
+                penetrations,
+                edits,
+            )
             ** 2
         )
     )
@@ -474,6 +653,7 @@ def _term_costs(
                 _residuals(
                     x,
                     graph,
+                    graph.objects,
                     observations,
                     bare.model_copy(
                         update={
@@ -486,6 +666,7 @@ def _term_costs(
                     settled,
                     supports,
                     penetrations,
+                    edits,
                 )
                 ** 2
             )
@@ -493,7 +674,7 @@ def _term_costs(
     }
 
 
-def _scale_variance(graph: SceneGraph, result) -> dict[str, float]:
+def _scale_variance(free: list[SceneObject], result) -> dict[str, float]:
     """Inverse-Hessian diagonal for the scale variables.
 
     Free from choosing Gauss-Newton: `J^T J` approximates the Hessian, and the
@@ -508,7 +689,10 @@ def _scale_variance(graph: SceneGraph, result) -> dict[str, float]:
         covariance = np.linalg.pinv(hessian)
     except np.linalg.LinAlgError:
         return {}
+    # Indexed against the objects the solve was free to move, which is what the
+    # Jacobian's columns are. Keyed on those only: an object held fixed has no
+    # column and so no variance to report, which is honest — nothing was estimated.
     return {
         obj.object_id: float(abs(covariance[index * 4, index * 4]))
-        for index, obj in enumerate(graph.objects)
+        for index, obj in enumerate(free)
     }

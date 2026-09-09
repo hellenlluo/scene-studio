@@ -47,10 +47,16 @@ import logging
 from pydantic import BaseModel, Field
 
 from app.pipeline import vlm
-from app.pipeline.base import PipelineContext, cache_key, load_cached, store_cached
+from app.pipeline.base import (
+    PipelineContext,
+    cache_key,
+    load_cached,
+    prompt_fingerprint,
+    store_cached,
+)
 from app.schemas import LabelResult, Material, ObjectLabel, SegmentResult, StageName
 
-__all__ = ["LabelResult", "inventory", "run"]
+__all__ = ["LabelResult", "inventory", "label_fingerprint", "run"]
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +153,16 @@ shape can land on something else — a covering over the object, or a smaller ob
 in front of it. Judge each one by the whole shape its outline encloses, not by \
 whatever its number happens to sit on.
 
+The segmenter found each region by searching this photo for a phrase, and those \
+phrases are listed below. Treat one as a strong prior and correct it only when the \
+image plainly disagrees: it is what a segmenter matched against these very pixels, \
+so it is better evidence than the number's position. It is not a verdict, for two \
+reasons — where two phrases found the same region only the higher-scoring one \
+survives, so it can be the wrong synonym, and a phrase is free text while your \
+answer must come from CATEGORIES.
+
+{concepts}
+
 Do not estimate dimensions, volume, weight or density. Those are measured elsewhere \
 from depth and geometry; your job is to pick the right bucket, not to measure.
 
@@ -186,7 +202,7 @@ def inventory(ctx: PipelineContext) -> list[str]:
     # single noun was enough to miss the segmentation cache and re-buy identical
     # masks on every run. Keyed off LABEL with no inputs, which cannot collide with
     # the labelling pass below; that one keys on (segments,).
-    key = cache_key(ctx, StageName.LABEL)
+    key = cache_key(ctx, StageName.LABEL, prompt_fingerprint(INVENTORY_PROMPT))
     if (cached := load_cached(ctx, key, _Inventory)) is not None:
         nouns = ", ".join(cached.objects)
         log.info("inventory: %d nouns (cached) — %s", len(cached.objects), nouns)
@@ -211,9 +227,17 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> LabelResult:
         return LabelResult(labels=[])
 
     annotated = annotate_masks(ctx.image_path, segments)
+    # The number the model sees, against the phrase that found that mask. Ordered
+    # to match `annotate_masks`, which numbers them by position in this same list.
+    found_by = "\n".join(
+        f"  {index}: {mask.concept!r}"
+        for index, mask in enumerate(segments.masks, start=1)
+        if mask.concept
+    )
     prompt = LABEL_PROMPT.format(
         categories=", ".join(CATEGORIES),
         materials=", ".join(m.value for m in Material),
+        concepts=found_by or "  (not recorded for this scene)",
     )
     parsed = vlm.parse(ctx, "label", [annotated], prompt, _Labels)
 
@@ -261,3 +285,11 @@ def run(ctx: PipelineContext, segments: SegmentResult) -> LabelResult:
         )
 
     return LabelResult(labels=labels)
+
+
+def label_fingerprint() -> str:
+    """Cache-key input for the labelling pass, so an edit to `LABEL_PROMPT` — or to
+    the vocabularies interpolated into it — re-runs it."""
+    return prompt_fingerprint(
+        LABEL_PROMPT, ", ".join(CATEGORIES), ", ".join(m.value for m in Material)
+    )

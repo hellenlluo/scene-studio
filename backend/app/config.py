@@ -144,6 +144,21 @@ class Settings(BaseSettings):
     )
 
     # --- stage 6: support surfaces ---
+    support_burial_slack_m: float = Field(
+        default=0.10,
+        description="How far above a child's base a surface may sit and still count "
+        "as the one it rests on.\n\n"
+        "`SupportHeights.under` picks the highest surface at or below the child, "
+        "which is what makes a shelf work: the topmost surface in a bookshelf's "
+        "column is the top of the unit, and a book on the middle shelf rests on "
+        "neither that nor the shelf above it. But reconstruction routinely buries "
+        "an object in its support by a few centimetres before the solver runs, and "
+        "a strict cutoff would then skip past the shelf it is buried in and answer "
+        "with the one below — turning a 20 mm error into a whole shelf of error. "
+        "10 cm is far more burial than reconstruction produces and far less than "
+        "any shelf spacing, so it separates the two cases cleanly.",
+    )
+
     support_grid_cell_m: float = Field(
         default=0.02,
         description="Cell size of the top-surface height grid the solver reads an "
@@ -275,6 +290,22 @@ class Settings(BaseSettings):
         except ValueError:
             return str(path)
 
+    def support_settings(self) -> dict[str, float | int]:
+        """The settings that change where a support surface is measured to be.
+
+        A cache-key input for every stage that measures one — reconcile, solve and
+        certify all call `support.build`, and all three would otherwise return an
+        artifact computed under a different definition of "the surface under this
+        object". That is not hypothetical: `support_burial_slack_m` was added to fix
+        books resting on the wrong shelf, and without this the fix changed nothing
+        on a rerun because every stage downstream of segmentation was cached.
+        """
+        return {
+            "support_grid_cell_m": self.support_grid_cell_m,
+            "support_grid_max_cells": self.support_grid_max_cells,
+            "support_burial_slack_m": self.support_burial_slack_m,
+        }
+
     def certification_thresholds(self) -> dict[str, float | int]:
         """The subset of settings a certification result depends on.
 
@@ -284,6 +315,7 @@ class Settings(BaseSettings):
         origins have no bearing on whether a scene passes.
         """
         return {
+            **self.support_settings(),
             "settle_seconds": self.settle_seconds,
             "max_com_displacement_m": self.max_com_displacement_m,
             "max_orientation_drift_deg": self.max_orientation_drift_deg,

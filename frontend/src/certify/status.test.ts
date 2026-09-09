@@ -41,6 +41,7 @@ function scaleCheck(objectId: string, overrides: Partial<ScaleCheck> = {}): Scal
     // the backend declares it.
     deviation_sigma: [0, 0, 0],
     support_gap_m: 0,
+    touching_parent: true,
     base_inside_parent: true,
     passed: true,
     ...overrides,

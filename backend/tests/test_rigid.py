@@ -144,7 +144,7 @@ def test_a_textured_closed_mesh_is_measured_as_closed():
     every real scene came back `None`, and the volume mass depends on was never
     measured."""
     box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
-    _, volume, watertight = _load_glb(_textured_glb(box), max_faces=100_000)
+    _, volume, watertight, _ = _load_glb(_textured_glb(box), max_faces=100_000)
 
     assert watertight
     assert volume == pytest.approx(0.4 * 0.2 * 0.1, rel=1e-6)
@@ -158,7 +158,7 @@ def test_the_stored_mesh_keeps_its_seams():
     data = _textured_glb(box)
 
     as_loaded = trimesh.load(io.BytesIO(data), file_type="glb", force="mesh")
-    mesh, _, _ = _load_glb(data, max_faces=100_000)
+    mesh, _, _, _ = _load_glb(data, max_faces=100_000)
 
     assert len(mesh.vertices) == len(as_loaded.vertices)
     assert isinstance(mesh.visual, trimesh.visual.TextureVisuals)
@@ -170,7 +170,7 @@ def test_welding_does_not_move_the_volume():
     never enters the number — which is why this fix is safe to apply to scenes
     already measured the old way."""
     data = _textured_glb(trimesh.creation.icosphere(subdivisions=2, radius=0.1))
-    _, volume, _ = _load_glb(data, max_faces=100_000)
+    _, volume, _, _ = _load_glb(data, max_faces=100_000)
 
     # Against the mesh as loaded, not the one authored above: glTF stores vertices
     # as float32, so a round trip moves the volume by ~2e-8 relative and would
@@ -185,7 +185,33 @@ def test_a_genuinely_open_mesh_still_reads_as_open():
     box = trimesh.creation.box(extents=(0.4, 0.2, 0.1))
     box.update_faces(np.arange(len(box.faces)) > 1)  # drop a face; leave a hole
 
-    _, volume, watertight = _load_glb(_textured_glb(box), max_faces=100_000)
+    _, volume, watertight, _ = _load_glb(_textured_glb(box), max_faces=100_000)
 
     assert not watertight
     assert volume is None
+
+
+def test_the_closed_original_is_returned_when_a_mesh_is_decimated():
+    """Decimation opens the surface, so the file the viewer gets is not the file
+    physics should be built from. `inertia` decomposes and weighs this copy instead.
+
+    Measured on `room2.png`: an armchair that crossed the face cap came out with no
+    collision geometry under its lower 27.9%, fell 589 mm, and took the pillow on it
+    down 992 mm — a visual budget deciding a physical fact.
+    """
+    dense = trimesh.creation.icosphere(subdivisions=4)  # 5120 faces
+    mesh, volume, watertight, original = _load_glb(_textured_glb(dense), max_faces=500)
+
+    assert len(mesh.faces) <= 500, "the shipped mesh is decimated"
+    assert original is not None, "the original is kept"
+    assert original.is_watertight, "and it is still closed"
+    assert len(original.faces) == len(dense.faces)
+    assert watertight and volume == pytest.approx(original.volume, rel=1e-6)
+
+
+def test_no_second_copy_when_nothing_was_decimated():
+    """Under the cap the visual mesh *is* the original, so a second copy would be
+    dead weight on disk."""
+    box = trimesh.creation.box(extents=(0.4, 0.3, 0.2))
+    _, _, _, original = _load_glb(_textured_glb(box), max_faces=100_000)
+    assert original is None

@@ -255,3 +255,159 @@ def test_only_builds_grids_for_things_that_support_something(tmp_path, settings)
         heights.under(graph.get("alone"), np.array([4.9, -0.1, 0.0]), np.array([5.1, 0.1, 0.0]))
         is None
     )
+
+
+# --- what cannot be holding it up ---------------------------------------------
+
+
+def _overhang(tmp_path, settings, intermediate: bool):
+    """A wide board on a narrow table, with something standing on the overhanging end.
+
+    Under the overhang there is nothing but floor 500 mm down, so the nearest surface
+    to those underside points is the *bottom* of the object standing on the board —
+    60 mm up, well inside the 100 mm `burial_slack_m` window. `contact` takes the
+    minimum gap over the board's underside, so that one point outvotes the points
+    genuinely resting on the table.
+
+    `intermediate` puts a tray between the two, which is the same error one hop
+    further away.
+    """
+    table = _object(
+        "table",
+        [_slab(tmp_path, (0.2, 0.2, 0.5), (0.0, 0.0, 0.0), "t")],
+        dims=(0.2, 0.2, 0.5),
+        position=(0.0, 0.0, 0.25),
+    )
+    board = _object(
+        "board",
+        [_slab(tmp_path, (0.6, 0.2, 0.06), (0.0, 0.0, 0.0), "b")],
+        dims=(0.6, 0.2, 0.06),
+        position=(0.2, 0.0, 0.53),
+        supported_by="table",
+    )
+    objects = [table, board]
+
+    standing_on, base = "board", 0.56
+    if intermediate:
+        objects.append(
+            _object(
+                "tray",
+                [_slab(tmp_path, (0.1, 0.1, 0.02), (0.0, 0.0, 0.0), "y")],
+                dims=(0.1, 0.1, 0.02),
+                position=(0.0, 0.0, 0.57),
+                supported_by="board",
+            )
+        )
+        standing_on, base = "tray", 0.58
+
+    objects.append(
+        _object(
+            "book",
+            [_slab(tmp_path, (0.2, 0.2, 0.06), (0.0, 0.0, 0.0), "u")],
+            dims=(0.2, 0.2, 0.06),
+            position=(0.35, 0.0, base + 0.03),
+            supported_by=standing_on,
+        )
+    )
+    # Something on the book, because `build` only rasterises an object that supports
+    # something — and in `room2.png` the book in question had a book on it.
+    objects.append(
+        _object(
+            "crumb",
+            [_slab(tmp_path, (0.02, 0.02, 0.01), (0.0, 0.0, 0.0), "c")],
+            dims=(0.02, 0.02, 0.01),
+            position=(0.35, 0.0, base + 0.065),
+            supported_by="book",
+        )
+    )
+
+    graph = SceneGraph(objects=objects)
+    heights = support.build(graph, settings)
+    return heights.contact(board, graph.objects, graph.floor_height_m, 0.005)
+
+
+def test_an_object_resting_on_this_one_is_not_a_candidate_support(tmp_path, settings):
+    """The failure this exclusion exists for. `contact` is deliberately parent-free —
+    an object rests on whatever is beneath it — but the one set of objects that
+    cannot be beneath it is the set resting on it, and the `burial_slack_m` window is
+    wide enough to let one in.
+
+    Measured on `room2.png`: a book was reported resting 98.87 mm *inside* the book
+    standing on it, one shave under the 100 mm slack, which is the signature of a
+    bound doing the choosing. Its real clearance to the side table it rests on was
+    4.66 mm. It cost `certify.scale` a false failure and `certify.repair` a 98.9 mm
+    snap proposed and rejected in every one of its five rounds.
+    """
+    contact = _overhang(tmp_path, settings, intermediate=False)
+    assert contact.resting_on == "table"
+    assert contact.gap == pytest.approx(0.0, abs=2e-3)
+
+
+def test_the_exclusion_is_transitive(tmp_path, settings):
+    """A mug on a tray on a board is two hops up and still cannot be under the board.
+
+    `reconcile.resolve_supports` reads `resting_on` straight back into
+    `supported_by`, so adopting one of these would close a cycle in the support
+    graph — and a support graph with a cycle has no floor to settle against.
+    """
+    contact = _overhang(tmp_path, settings, intermediate=True)
+    assert contact.resting_on == "table"
+    assert contact.gap == pytest.approx(0.0, abs=2e-3)
+
+
+def test_a_neighbour_overlapping_only_in_plan_view_is_not_a_support(tmp_path, settings):
+    """A plant standing beside a vase on the same shelf, its foliage reaching over the
+    bit of the vase that overhangs the shelf edge.
+
+    The two do not touch — the foliage clears the vase's top — but they share columns
+    in plan view, and over the overhang there is no shelf, so the only surface
+    anywhere near those points is the plant's, 50 mm *above* them.
+    `grid.sample`'s "under the whole parent" fallback hands it back, it beats the
+    floor half a metre down, and `contact` takes the minimum gap over the underside —
+    so a few overhanging points outvote every point genuinely resting on the shelf.
+
+    Measured on `room2.png`: a vase resting on its shelf at +2.55 mm over 1640 of its
+    1658 underside points was reported 93.97 mm inside the plant beside it, on 51
+    points near its rim. `certify.stability` measured the pair as not touching at all.
+
+    The discriminator is not a tolerance. Burial *straddles* the point — a mug 50 mm
+    into a table has the tabletop above its underside and the table's legs below —
+    and a neighbour does not. Every one of those 51 columns was entirely above the
+    point: lowest surface 1.9970 against a point at 1.9509.
+    """
+    shelf = _object(
+        "shelf",
+        [_slab(tmp_path, (1.0, 0.4, 0.04), (0.0, 0.0, 0.0), "s")],
+        dims=(1.0, 0.4, 0.04),
+        position=(0.0, 0.0, 0.48),  # top at 0.50, out to x = 0.5
+    )
+    vase = _object(
+        "vase",
+        [_slab(tmp_path, (0.2, 0.2, 0.04), (0.0, 0.0, 0.0), "v")],
+        dims=(0.2, 0.2, 0.04),
+        # Base 0.50 on the shelf, top 0.54, overhanging the edge from x = 0.5 to 0.55.
+        position=(0.45, 0.0, 0.52),
+        supported_by="shelf",
+    )
+    plant = _object(
+        "plant",
+        [
+            _slab(tmp_path, (0.04, 0.04, 0.05), (0.0, 0.0, 0.025), "stem"),
+            # Foliage from 0.55 to 0.59: clear of the vase's 0.54 top, so nothing
+            # touches, and within `burial_slack_m` of the vase's 0.50 underside.
+            _slab(tmp_path, (0.3, 0.3, 0.04), (0.0, 0.0, 0.07), "leaves"),
+        ],
+        dims=(0.3, 0.3, 0.09),
+        position=(0.62, 0.0, 0.50),
+        supported_by="shelf",
+    )
+    graph = SceneGraph(objects=[shelf, vase, plant])
+
+    # Grids for every object, which is what `reconcile.resolve_supports` asks for —
+    # the default candidate set is the declared parents, and a plant that supports
+    # nothing never gets a grid to be wrongly chosen from.
+    heights = support.build(graph, settings, candidates={o.object_id for o in graph.objects})
+    contact = heights.contact(vase, graph.objects, graph.floor_height_m, 0.005)
+
+    assert contact.resting_on == "shelf"
+    assert contact.gap == pytest.approx(0.0, abs=2e-3)

@@ -8,8 +8,9 @@ from app.certify import certify, repair
 from app.config import get_settings
 from app.db import get_db
 from app.export import gltf, mjcf
+from app.geometry import dependents
 from app.models import Scene
-from app.pipeline import solve
+from app.pipeline import reconcile, solve
 from app.pipeline.base import PipelineContext
 from app.schemas import (
     AxisStatus,
@@ -72,6 +73,20 @@ class RepairResponse(BaseModel):
     actions: list[RepairAction]
     converged: bool
     rounds_used: int
+
+
+class SceneEditResponse(BaseModel):
+    """The committed scene, plus what repairing it did.
+
+    The actions are not decoration. A commit now repairs as well as re-solves, and
+    a repair that moved an object without saying so is the silent-change problem
+    the endpoint used to avoid by not repairing at all. Reported here so the client
+    can show what a drag actually cost — including the proposals that were tried
+    and reverted, which `RepairAction.improved` distinguishes.
+    """
+
+    scene: SceneEnvelope
+    actions: list[RepairAction] = []
 
 
 def _envelope(scene: Scene) -> SceneEnvelope:
@@ -174,36 +189,44 @@ def repair_scene(scene_id: str, db: Session = Depends(get_db)) -> RepairResponse
     )
 
 
-@router.put("/{scene_id}", response_model=SceneEnvelope)
+@router.put("/{scene_id}", response_model=SceneEditResponse)
 def edit_scene(
     scene_id: str,
     edit: SceneEditRequest,
     db: Session = Depends(get_db),
-) -> SceneEnvelope:
-    """Apply a user edit, re-solve from it, and re-certify.
+) -> SceneEditResponse:
+    """Apply a user edit, re-derive what it rests on, re-solve, certify and repair.
 
     Everything is editable — pose, scale, support parent, mass. There is no wizard
     and no gating, because the system does not know enough to decide what the user
     is allowed to touch.
 
-    **The edit seeds the solve; it does not constrain it.** `solve.run` starts from
-    whatever pose the graph carries, so writing the new position and re-running is
-    the whole mechanism: the object is refined from where the user put it rather
-    than from where reconstruction did, and the objects resting on it follow. A
-    typed dimension is different and already has its own hard-constraint path —
-    `ScaleAnchor`, which enters `E_prior` with sigma to zero. A dragged position is
-    an eyeball estimate, and holding one infinitely certain would throw away the
-    depth measurement in its favour.
+    **A drag revises the scene graph, not just the pose.** Dropping a book on a
+    table makes the table what it rests on, and until that edge is rewritten every
+    later stage reads the old one — the support term closes the gap to the floor and
+    puts the book underneath the table it was dropped on. So the parent is
+    re-derived from geometry before the solve, scoped to the objects the user moved.
 
-    **No repair.** Repair is a separate, deliberate action with its own endpoint. An
-    edit that silently moved objects the user did not touch would be a surprising
-    thing for a drag to do, and the certificate returned here is the honest answer
-    to "what did my edit do" — including when the answer is that it made things
-    worse.
+    **The edit is a measurement, not just a seed.** `solve.run` starts from whatever
+    pose the graph carries, but starting there is not enough on its own: the stored
+    depth centre still pointed at the pre-edit position and simply pulled the object
+    back, keeping 0% of a one-metre drag. Properties the user has set are now what
+    the depth term aims at for that object — see `solve._edit_priors`. Softly, at
+    the depth weight, so an impossible drop is still corrected by support and
+    penetration. `ScaleAnchor` is still the hard constraint, for a dimension the
+    user has actually measured.
 
-    Values the user set are marked `Provenance.USER`, which nothing reads yet. It
-    records what a person chose as distinct from what a model predicted, and that
-    is worth keeping whether or not the solver ever holds it fixed.
+    **Repair runs here, bounded to the edit.** It used to be refused outright,
+    because "an edit that silently moved objects the user did not touch would be a
+    surprising thing for a drag to do" — true, and it left a commit able to produce
+    a visibly broken scene whose fix sat behind a button. Scoping repair to the
+    edited objects and their dependents keeps that guarantee and still finishes the
+    job; `SceneEditResponse.actions` reports every correction, so nothing is silent.
+    The whole-scene `/repair` endpoint remains for a scene loaded without an edit.
+
+    Values the user set are marked `Provenance.USER`. `solve._edit_priors` reads it,
+    so it is now load-bearing rather than merely recorded — see the note there about
+    solve no longer stamping over it.
     """
     scene = db.get(Scene, scene_id)
     if scene is None:
@@ -247,14 +270,69 @@ def edit_scene(
     spec.anchors = edit.anchors or spec.anchors
 
     ctx = PipelineContext.create(scene.job_id, settings.storage_dir / spec.image_path)
+    actions: list[RepairAction] = []
+    free: set[str] = set()
     if edit.resolve:
-        # No depth map and no masks: a re-solve reads the per-object measurement
-        # carried on the graph instead. See `DepthObservation`.
-        solved = solve.run(ctx, spec.graph, None, None, spec.weights, spec.anchors)
+        touched = {change.object_id for change in edit.objects}
+        touched |= {anchor.object_id for anchor in edit.anchors}
+
+        # **Re-derive support before anything reads it.** A drag carries a new
+        # position and no new parent, so without this the graph still records where
+        # the object used to rest and stage 6 dutifully closes the gap to it:
+        # measured on `room2`, a book dropped on the side table at z=0.584 came back
+        # from solve at z=0.015, on the floor underneath it. Same arbitration stage 5
+        # uses, scoped to the objects the user moved — see `resolve_supports`.
+        #
+        # Except where the user named a parent themselves. An explicit choice is not
+        # something to re-derive; that is the one case where the recorded edge is
+        # about the present rather than the past.
+        reconsider = touched - {
+            change.object_id for change in edit.objects if change.supported_by is not None
+        }
+        if reconsider:
+            spec.graph = reconcile.resolve_supports(spec.graph, settings, reconsider)
+
+        # Only what the user touched, plus whatever rests on it. A full re-solve
+        # moves objects nobody edited: measured on `room2.png` it took the scale axis
+        # from 6 failures to 9, and with a third of the scene sitting within 4 mm of
+        # the gap tolerance that reads as objects flickering between certified and
+        # not for no visible reason. Repair below is scoped to the same set for the
+        # same reason.
+        #
+        # Computed *after* reparenting, because reparenting is what decides who the
+        # dependents are: a book moved from the basket to the side table takes its
+        # own stack with it, and the basket's remaining contents are no longer in
+        # scope.
+        free = set(touched)
+        for object_id in touched:
+            free |= dependents(spec.graph.objects, object_id)
+
+        solved = solve.run(
+            ctx, spec.graph, None, None, spec.weights, spec.anchors, free_ids=free or None
+        )
         spec.graph = solved.graph
         spec.diagnostics = solved.diagnostics
 
     spec.certificate = certify.run(ctx, spec.graph)
+
+    if edit.resolve and free:
+        # Repair, scoped to the same objects the solve was free to move.
+        #
+        # This endpoint used to decline to repair at all, on the grounds that
+        # "repair changes objects the user did not touch, which is a surprising
+        # thing for a drag to do". That reasoning was right about the danger and
+        # wrong about the remedy: it left a commit able to produce a scene that
+        # visibly fails, with the fix behind a separate button the user had to know
+        # to press. Bounding repair to the edit answers the objection directly —
+        # nothing outside the set is ever proposed — and lets a commit finish the
+        # job it started.
+        repaired = repair.run(ctx, spec.graph, spec.certificate, only_ids=free)
+        spec.graph = repaired.graph
+        spec.certificate = repaired.certificate
+        actions = repaired.actions
+        # Appended rather than replaced, as `/repair` does: the history of what was
+        # corrected is the interesting part.
+        spec.repairs_applied = [*spec.repairs_applied, *actions]
 
     out = ctx.workdir()
     # Both exports, because they are pure functions of the graph and a viewer
@@ -267,4 +345,4 @@ def edit_scene(
     scene.spec = spec.model_dump(mode="json")
     db.commit()
     db.refresh(scene)
-    return _envelope(scene)
+    return SceneEditResponse(scene=_envelope(scene), actions=actions)

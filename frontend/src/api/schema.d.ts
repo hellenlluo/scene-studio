@@ -66,30 +66,38 @@ export interface paths {
         get: operations["get_scene_api_scenes__scene_id__get"];
         /**
          * Edit Scene
-         * @description Apply a user edit, re-solve from it, and re-certify.
+         * @description Apply a user edit, re-derive what it rests on, re-solve, certify and repair.
          *
          *     Everything is editable — pose, scale, support parent, mass. There is no wizard
          *     and no gating, because the system does not know enough to decide what the user
          *     is allowed to touch.
          *
-         *     **The edit seeds the solve; it does not constrain it.** `solve.run` starts from
-         *     whatever pose the graph carries, so writing the new position and re-running is
-         *     the whole mechanism: the object is refined from where the user put it rather
-         *     than from where reconstruction did, and the objects resting on it follow. A
-         *     typed dimension is different and already has its own hard-constraint path —
-         *     `ScaleAnchor`, which enters `E_prior` with sigma to zero. A dragged position is
-         *     an eyeball estimate, and holding one infinitely certain would throw away the
-         *     depth measurement in its favour.
+         *     **A drag revises the scene graph, not just the pose.** Dropping a book on a
+         *     table makes the table what it rests on, and until that edge is rewritten every
+         *     later stage reads the old one — the support term closes the gap to the floor and
+         *     puts the book underneath the table it was dropped on. So the parent is
+         *     re-derived from geometry before the solve, scoped to the objects the user moved.
          *
-         *     **No repair.** Repair is a separate, deliberate action with its own endpoint. An
-         *     edit that silently moved objects the user did not touch would be a surprising
-         *     thing for a drag to do, and the certificate returned here is the honest answer
-         *     to "what did my edit do" — including when the answer is that it made things
-         *     worse.
+         *     **The edit is a measurement, not just a seed.** `solve.run` starts from whatever
+         *     pose the graph carries, but starting there is not enough on its own: the stored
+         *     depth centre still pointed at the pre-edit position and simply pulled the object
+         *     back, keeping 0% of a one-metre drag. Properties the user has set are now what
+         *     the depth term aims at for that object — see `solve._edit_priors`. Softly, at
+         *     the depth weight, so an impossible drop is still corrected by support and
+         *     penetration. `ScaleAnchor` is still the hard constraint, for a dimension the
+         *     user has actually measured.
          *
-         *     Values the user set are marked `Provenance.USER`, which nothing reads yet. It
-         *     records what a person chose as distinct from what a model predicted, and that
-         *     is worth keeping whether or not the solver ever holds it fixed.
+         *     **Repair runs here, bounded to the edit.** It used to be refused outright,
+         *     because "an edit that silently moved objects the user did not touch would be a
+         *     surprising thing for a drag to do" — true, and it left a commit able to produce
+         *     a visibly broken scene whose fix sat behind a button. Scoping repair to the
+         *     edited objects and their dependents keeps that guarantee and still finishes the
+         *     job; `SceneEditResponse.actions` reports every correction, so nothing is silent.
+         *     The whole-scene `/repair` endpoint remains for a scene loaded without an edit.
+         *
+         *     Values the user set are marked `Provenance.USER`. `solve._edit_priors` reads it,
+         *     so it is now load-bearing rather than merely recorded — see the note there about
+         *     solve no longer stamping over it.
          */
         put: operations["edit_scene_api_scenes__scene_id__put"];
         post?: never;
@@ -675,6 +683,15 @@ export interface components {
             parent_part_id?: string | null;
             /** Visual Mesh Path */
             visual_mesh_path?: string | null;
+            /**
+             * Source Mesh Path
+             * @description The mesh as reconstruction returned it, before decimation.
+             *
+             *     `visual_mesh_path` is what the browser downloads and is decimated to fit `max_mesh_faces`; decimation opens the surface, and a repair pass does not close it again. So the file the viewer gets is not the file physics should be built from, and building physics from it made a visual budget decide a physical fact: measured on `room2.png`, an armchair that crossed the face cap came out with no collision geometry under its lower 27.9%, fell 589 mm, and took the pillow on it down 992 mm.
+             *
+             *     Kept so `inertia` can decompose and weigh the closed original while the viewer keeps the small one. None on the OBB fallback path, and on meshes that never needed decimating — there the visual mesh *is* the original.
+             */
+            source_mesh_path?: string | null;
             /** Collision Mesh Paths */
             collision_mesh_paths?: string[];
             /** @default obb */
@@ -796,6 +813,11 @@ export interface components {
              */
             delta_scale: number;
             /**
+             * New Parent Id
+             * @description For REPARENT: the object this should have been recorded as resting on. Distinct from a position change because nothing moves — the geometry was right and the bookkeeping was wrong.
+             */
+            new_parent_id?: string | null;
+            /**
              * Magnitude
              * @description Size of the correction, for minimality.
              * @default 0
@@ -810,9 +832,17 @@ export interface components {
         };
         /**
          * RepairKind
+         * @description One per way a scene can fail.
+         *
+         *     The pairing is the point. A criterion the certificate can fail on with no
+         *     strategy able to address it produces a scene that is reported broken and cannot
+         *     be acted on — measured on `room2.png`, four of five failing objects were outside
+         *     their contact polygon, `snap_to_support` moves only in z, and repair proposed a
+         *     single action for the whole scene and rejected it. `test_repair` asserts the
+         *     pairing so a new criterion cannot land without one.
          * @enum {string}
          */
-        RepairKind: "snap_to_support" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
+        RepairKind: "snap_to_support" | "slide_onto_support" | "reparent" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
         /** RepairResponse */
         RepairResponse: {
             scene: components["schemas"]["SceneEnvelope"];
@@ -864,6 +894,21 @@ export interface components {
              */
             support_gap_m: number;
             /**
+             * Touching Parent
+             * @description Whether the object meets the thing it is *recorded* as resting on, anywhere, within the penetration tolerance.
+             *
+             *     Split from `support_gap_m` because the two answer different questions and folding them together made both wrong. The gap is geometry — is this floating, buried, or resting — and it is measured against whatever lies beneath the object, which in a real scene is often more than one thing: an armchair with three legs on a rug and one on the floor is ordinary and stable, and so is a book overlapping another book by most of its face.
+             *
+             *     This is semantics: a book that fell from its table to the floor has a perfect gap and is perfectly stable, and is still in the wrong place. Only a check that names the table can say so.
+             * @default true
+             */
+            touching_parent: boolean;
+            /**
+             * Resting On
+             * @description What the object is actually nearest to resting on, which need not be `SceneObject.supported_by`. None means the floor. Recorded because a disagreement between the two is the single most useful thing to know when a scene looks right and certifies wrong.
+             */
+            resting_on?: string | null;
+            /**
              * Base Inside Parent
              * @default true
              */
@@ -886,6 +931,24 @@ export interface components {
              * @default true
              */
             resolve: boolean;
+        };
+        /**
+         * SceneEditResponse
+         * @description The committed scene, plus what repairing it did.
+         *
+         *     The actions are not decoration. A commit now repairs as well as re-solves, and
+         *     a repair that moved an object without saying so is the silent-change problem
+         *     the endpoint used to avoid by not repairing at all. Reported here so the client
+         *     can show what a drag actually cost — including the proposals that were tried
+         *     and reverted, which `RepairAction.improved` distinguishes.
+         */
+        SceneEditResponse: {
+            scene: components["schemas"]["SceneEnvelope"];
+            /**
+             * Actions
+             * @default []
+             */
+            actions: components["schemas"]["RepairAction"][];
         };
         /**
          * SceneEnvelope
@@ -1149,9 +1212,73 @@ export interface components {
             support: number;
             /**
              * Penetration
-             * @default 5
+             * @description Weight on pairwise overlap depth.
+             *
+             *     Raised from 5.0 on measurement. At 5.0 it was outvoted the same way `support` was before its own raise — depth contributes six residuals per object against one per *pair* here — and the overlap it left was the thing physics could not survive: a 14.5 mm book-on-book overlap ejected a 0.158 kg book at 16.7 m/s. Swept on `room2.png`, worst overlap and settle drift both improve to 20 and both get worse past it:
+             *
+             *         weight   worst overlap   settle drift
+             *              5         7.5 mm        2601 mm
+             *             20         4.5 mm        1768 mm
+             *             60        43.5 mm        2554 mm
+             *
+             *     60 overshoots — pushing one pair apart drives each of them into something else — so this sits at the minimum rather than at the top of the range. `room1.png` certifies on all four axes at both 5 and 20 with identical settle drift, so the raise costs nothing on a scene that was already sound.
+             * @default 20
              */
             penetration: number;
+            /**
+             * Containment
+             * @description Weight on how far a supported object's footprint centre sits *outside* its support.
+             *
+             *     The support term is signed but vertical — it closes the gap to whatever an object rests on and says nothing about staying over it. So nothing in the objective resisted lateral drift, and depth is free to slide a child off its parent at no cost. Measured on `room2.png`: between reconcile and solve, four objects on the side table moved 314, 904, 1007 and 1225 mm sideways while keeping the same `supported_by`, and seven of nine scale failures were objects at the right height (gap under 3 mm against a 5 mm bar) that were no longer over anything. Floor-standing objects moved 0.0-0.8 mm over the same solve, which is what a term acting only on supported objects looks like when it is missing.
+             *
+             *     One-sided and zero inside, exactly like penetration: an object over its support pays nothing, so this cannot distort a scene that was already right. Measured on the footprint *centre* against the parent's AABB, because that is the criterion `certify.scale` reports — a laptop overhanging a side table by one corner is resting on it, and requiring full containment would fail it.
+             *
+             *     **Off by default. Swept three times, off after each.**
+             *
+             *     The third sweep is the one that settles it, because the two objections the earlier ones raised have both since been answered elsewhere: the target is `nearest_support_xy`, a real occupied column of the parent rather than its AABB, and the support *gap* is now `gap_to`, probed on the child's own underside rather than on bounding-box corners. Neither of the old excuses survives, and the term still does not pay. Swept on `room2`:
+             *
+             *         weight   not-over-support   worst overlap   settle drift
+             *              0         5/16            17.3 mm        11094 mm
+             *              5         5/16            15.2 mm         5925 mm
+             *             10         6/16            15.7 mm         1840 mm
+             *             20         8/16             7.2 mm         1927 mm
+             *             40         6/16            44.7 mm         1049 mm
+             *
+             *     `not-over-support` is the number this term exists to reduce and it goes *up*, non-monotonically, peaking at the weight where overlap happens to look best. That is not a knee to tune to, it is noise.
+             *
+             *     **It is not that the term does nothing — it is that repair does it better.** Scoped to one object, which is how an edit actually runs it, containment works: `room2`'s plate moves from y=0.719 to y=0.578, inside the side table's y span, at every weight from 5 up. But `base_inside_parent` stays False throughout, because being over a surface in plan view is not resting on it, and a lateral term cannot close a vertical gap. Repair closes both — `_slide_onto_support` moves the plate 228 mm onto the table and `_snap_to_support` then drops it the last 2 mm — and since repair now runs on every commit, that path reaches the same objects without the scene-wide cost above.
+             *
+             *     Revisit if repair's scoping ever stops covering the case, or if a scene appears where an object leaves its support without any certificate check firing. Until then this is a term that is right in principle, correct in isolation, and dominated in practice.
+             *
+             *     The second reason it was off, kept because the trade it describes is real:
+             *
+             *     Aimed at the parent's AABB it drove objects into concave parents, so it was re-aimed at the nearest point with real surface under it once the height grid could answer that. Swept again on `room2.png` it still trades one axis for another, now by colliding the object with its neighbours on the way:
+             *
+             *         weight   not-over-support   worst overlap   settle drift
+             *              0         4/17             8.1 mm         2219 mm
+             *             10         2/17            43.5 mm         8183 mm
+             *             40         2/17           105.4 mm         3169 mm
+             *
+             *     It buys two objects their support and costs an order of magnitude of overlap. The pull is only as good as the query under it, and that query still places its probes on the child's *bounding box* rather than on the child's own contact geometry — measured on the side table, a pedestal whose contact patch is 0.107 x 0.037 m inside a 0.56 x 0.58 m footprint, so 99% of what gets probed is the empty air under a round top. Fix the probe placement before believing another sweep of this weight.
+             *
+             *     *Since resolved, and it did not rescue the term.* `SupportHeights.gap_to` now probes the child's own underside points, so the pedestal case is measured correctly — and the third sweep above, run afterwards, is worse than this one. The probes were a real defect; they were not what was holding this weight down.
+             *
+             *     The first reason it was off, kept because the trade it describes is real:
+             *
+             *     The target is the parent's AABB, and a bookshelf's AABB is mostly solid shelf — so pulling a vase's centre 'inside' it drives the vase into the structure. Swept on `room2.png`, against the scene entering solve with no overlap at all:
+             *
+             *         weight   vase buried   not-over-support   settle drift
+             *              0       0.00 mm           6/15           1237 mm
+             *              8       4.95 mm           4/15           1568 mm
+             *             20      20.62 mm           3/15           1731 mm
+             *             60      34.03 mm           1/15           2358 mm
+             *
+             *     It buys the scale axis by paying the stability axis, monotonically, and settling degrades at every step — the 34 mm burial is what MuJoCo ejects at 15.9 m/s before diverging. The term itself is right and its unit tests hold on a flat support; what is wrong is the target. It should pull toward the parent's *supporting surface*, not its bounding box, and today's `SupportHeights` cannot express that — a top-down heightfield keeps one height per column, so it cannot represent a shelf with anything under it. Turn this on once support is a surface rather than a heightfield.
+             *
+             *     For the record, on a flat support the weight sweep was clean: 60.0 is the floor rather than the knee, which is the opposite of how `support` is tuned, and for a reason that does not apply there. Swept against depth wrong by 0.8 m, the residual offset goes 311 mm at 0, then 10.8, 2.8, 0.7, 0.2 and 0.0 mm at 4, 8, 16, 30 and 60 — while the depth term's own cost sits at 0.043 from 4 upward and never moves again. `base_inside_parent` is a boolean, so a term that leaves 0.7 mm outside has not fixed the check it exists to fix, and there is no repair strategy for containment to finish the job — `_snap_to_support` only translates in z. Weighting `support` this hard would override depth on every object because it is signed and always active; this one is inert until an object has already left its support, so buying the boolean outright costs nothing on a scene that was placed correctly.
+             * @default 0
+             */
+            containment: number;
         };
         /** StabilityCheck */
         StabilityCheck: {
@@ -1334,7 +1461,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SceneEnvelope"];
+                    "application/json": components["schemas"]["SceneEditResponse"];
                 };
             };
             /** @description Validation Error */

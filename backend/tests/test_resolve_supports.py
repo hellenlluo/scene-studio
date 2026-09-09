@@ -169,3 +169,144 @@ def test_a_near_tie_keeps_the_label(tmp_path, settings):
         ]
     )
     assert _supports(resolve_supports(graph, settings))["book"] == "table"
+
+
+def test_an_object_on_bare_floor_still_reads_as_floor(tmp_path, settings):
+    """The demotion must not invent a support. With nothing else underneath, the
+    floor is the only viable candidate and still wins."""
+    block = _slab(tmp_path, (0.5, 0.5, 0.4), "block")
+    graph = SceneGraph(
+        objects=[_object("chair", [block], (0.5, 0.5, 0.4), (0.0, 0.0, 0.2), supported_by=None)]
+    )
+    assert _supports(resolve_supports(graph, settings))["chair"] is None
+
+
+# --- run twice, because the pipeline now does ---------------------------------
+
+
+def test_resolving_twice_changes_nothing_the_second_time(tmp_path, settings):
+    """The orchestrator runs this twice: once inside `reconcile.run`, and again after
+    stage 9, which is where `collision_mesh_paths` first exists. Before that every
+    part falls back to its visual mesh or its OBB box, so the first pass decides the
+    support relation from geometry no later stage uses — measured on `room2.png`,
+    0 collision meshes at stage 5 against 263 after stage 9, and re-running this
+    unchanged on the post-stage-9 graph moves an armchair off the floor and onto the
+    rug it measurably rests on.
+
+    A second pass is only safe if it is a fixed point on geometry that has not
+    changed. It has to be: the rule reads the measurement, and the measurement does
+    not depend on what the relation currently says.
+    """
+    low = _slab(tmp_path, (2.0, 2.0, 0.1), "low")
+    high = _slab(tmp_path, (1.0, 1.0, 0.1), "high")
+    mug = _slab(tmp_path, (0.1, 0.1, 0.1), "mug")
+    graph = SceneGraph(
+        objects=[
+            _object("low", [low], (2.0, 2.0, 0.1), (0.0, 0.0, 0.05)),
+            _object("high", [high], (1.0, 1.0, 0.1), (0.0, 0.0, 0.25)),
+            _object("mug", [mug], (0.1, 0.1, 0.1), (0.0, 0.0, 0.35), supported_by="low"),
+        ]
+    )
+    once = resolve_supports(graph, settings)
+    twice = resolve_supports(once, settings)
+    assert _supports(once) == {"low": None, "high": "low", "mug": "high"}
+    assert _supports(twice) == _supports(once)
+
+
+# --- the user-edit path -------------------------------------------------------
+#
+# `reconsider` names objects the user has just dragged. Two things change for
+# them: only they are rewritten, and their recorded parent stops being a claim to
+# defend — a drag carries a new position and no new label, so the stored edge
+# describes where the object *was*.
+
+
+def test_a_dragged_object_adopts_the_surface_it_was_dropped_on(tmp_path, settings):
+    """The reported bug, at the unit level.
+
+    Measured end to end on `room2` before this existed: a book recorded as
+    floor-supported and dropped onto the side table came back from solve at
+    z=0.015, underneath it, because the support term was still closing the gap to
+    the floor. Nothing was wrong with the solver — it was told the floor.
+    """
+    table = _slab(tmp_path, (1.0, 1.0, 0.05), "table")
+    book = _slab(tmp_path, (0.2, 0.2, 0.04), "book")
+    graph = SceneGraph(
+        objects=[
+            _object("table", [table], (1.0, 1.0, 0.05), (0.0, 0.0, 0.5)),
+            # Resting on the tabletop, but still recorded as floor-supported.
+            _object("book", [book], (0.2, 0.2, 0.04), (0.0, 0.0, 0.545)),
+        ]
+    )
+    assert _supports(graph)["book"] is None
+    assert _supports(resolve_supports(graph, settings, {"book"}))["book"] == "table"
+
+
+def test_reconsidering_leaves_every_other_object_alone(tmp_path, settings):
+    """A drag must not quietly reparent the far side of the room.
+
+    The whole reason repair is scoped on this path too — see
+    `api.scenes.edit_scene`. An unbounded pass here would undo that at the first
+    step.
+    """
+    mat = _slab(tmp_path, (1.0, 1.0, 0.02), "mat")
+    block = _slab(tmp_path, (0.5, 0.5, 0.4), "block")
+    book = _slab(tmp_path, (0.2, 0.2, 0.04), "book")
+    graph = SceneGraph(
+        objects=[
+            _object("mat", [mat], (1.0, 1.0, 0.02), (0.0, 0.0, 0.01)),
+            # Contradicted by the geometry — an unscoped pass would demote it.
+            _object("sofa", [block], (0.5, 0.5, 0.4), (1.2, 0.0, 0.2), supported_by="mat"),
+            _object("book", [book], (0.2, 0.2, 0.04), (0.0, 0.0, 0.04)),
+        ]
+    )
+    resolved = resolve_supports(graph, settings, {"book"})
+    assert _supports(resolved)["sofa"] == "mat", "an untouched object was reparented"
+    assert _supports(resolve_supports(graph, settings))["sofa"] is None, (
+        "the unscoped pass should still demote it, or this test proves nothing"
+    )
+
+
+def test_a_stale_edge_cannot_defend_itself(tmp_path, settings):
+    """The margin that protects a *claim* must not protect a *memory*.
+
+    Without clearing it, `support_claim_margin_m` keeps the old parent whenever it
+    is within 50 mm of the best candidate — so nudging a mug from one coaster to
+    an adjacent one of the same height would leave it recorded on the first.
+    """
+    left = _slab(tmp_path, (0.3, 0.3, 0.05), "left")
+    right = _slab(tmp_path, (0.3, 0.3, 0.05), "right")
+    mug = _slab(tmp_path, (0.1, 0.1, 0.1), "mug")
+    graph = SceneGraph(
+        objects=[
+            _object("left", [left], (0.3, 0.3, 0.05), (-0.4, 0.0, 0.025)),
+            _object("right", [right], (0.3, 0.3, 0.05), (0.4, 0.0, 0.025)),
+            # Sitting on `right`, still recorded on `left`: the drag that moved it.
+            _object("mug", [mug], (0.1, 0.1, 0.1), (0.4, 0.0, 0.1), supported_by="left"),
+        ]
+    )
+    assert _supports(resolve_supports(graph, settings, {"mug"}))["mug"] == "right"
+
+
+def test_a_drop_into_open_space_keeps_its_edge(tmp_path, settings):
+    """The fallback is the same as the pipeline's, and that took a wrong turn first.
+
+    An earlier version dropped a stale edge to the floor here, reasoning that a
+    drop into open space has no parent. It reads well and it destroys the useful
+    information: measured on `room2`, the plate 138 mm off the side table lost its
+    recorded parent, and with `supported_by=None` every strategy that could put it
+    back declined — the floor is the one support an object is always over, so
+    `repair._slide_onto_support` skips it. The edge says where the object belongs;
+    the geometry says where it is, and keeping the edge is what lets the rest of
+    the system close the gap.
+    """
+    table = _slab(tmp_path, (1.0, 1.0, 0.05), "table")
+    mug = _slab(tmp_path, (0.1, 0.1, 0.1), "mug")
+    graph = SceneGraph(
+        objects=[
+            _object("table", [table], (1.0, 1.0, 0.05), (0.0, 0.0, 0.5)),
+            # A metre up: nothing measurable under it, and too far from the floor.
+            _object("mug", [mug], (0.1, 0.1, 0.1), (0.0, 0.0, 1.6), supported_by="table"),
+        ]
+    )
+    assert _supports(resolve_supports(graph, settings, {"mug"}))["mug"] == "table"

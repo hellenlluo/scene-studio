@@ -31,6 +31,12 @@ table, it says none. So the duplicate check renders each supporting object alone
 and asks only about that object, and a child resting on a parent whose own mesh
 already contains that kind of thing is the duplicate.
 
+Isolation means *each image shows one object*, which is why several parents can
+share a call: the failure above came from showing the assembled scene, not from
+sharing a request. `BUILTIN_BATCH` parents go in at once against a roster naming
+which images belong to which — a room where a sofa, a table and a shelf each hold
+something costs one call rather than three.
+
 **Geometry cannot answer the second question, and three attempts confirmed it.**
 Mask overlap: the pillow masks and the sofa mask are adjacent, not overlapping —
 segmentation cut a pillow-shaped notch out of the sofa, so the intersection is
@@ -59,6 +65,13 @@ from app.schemas import ObjectVerdict, ObjectVerification, SceneGraph, VerifyRes
 __all__ = ["VerifyResult", "prompts_fingerprint", "run"]
 
 log = logging.getLogger(__name__)
+
+# Parents per duplicate-check call, at three rendered views each — so at most 12
+# images in one request. The bound exists because the batch is what makes this one
+# call instead of N, and an unbounded one would put a whole cluttered room's worth
+# of renders in a single message; the reliability of the answer is the thing being
+# economised on, not the token count.
+BUILTIN_BATCH = 4
 
 EXTERNAL_PROMPT = """\
 The first image is the original photo. The next three images are a 3D \
@@ -94,23 +107,29 @@ anywhere in the photo at any location. When in doubt, `ok`.
 Give a one-sentence `reason` for each naming what you saw."""
 
 BUILTIN_PROMPT = """\
-These are three views of ONE reconstructed 3D object, alone on a blank \
-background. It is a {category}.
+These images are views of {count} reconstructed 3D objects, each one alone on a \
+blank background. Every object gets three views in a row — the same object from \
+three angles — and the objects follow each other in this order:
+
+{roster}
 
 Single-image reconstruction completes an object using what it expects that kind \
 of object to have, so a reconstructed sofa often arrives with its cushions \
 already modelled into it, a desk with its drawers.
 
-The scene separately places these kinds of item on top of this object: \
-{categories}.
+For each object, and for each kind of item listed against it, say whether that \
+object's own shape **already includes** one — an item a person could lift off and \
+carry away, which a bare version of that object would not have. Fixed structural \
+parts (legs, arms, a backrest frame, a tabletop) never count, however cushion-like \
+they look.
 
-For each of those kinds, say whether this object's own shape **already includes** \
-one — an item a person could lift off and carry away, which a bare version of \
-this object would not have. Fixed structural parts (legs, arms, a backrest frame, \
-a tabletop) never count, however cushion-like they look.
+**Answer about each object using only its own three images.** The objects here are \
+unrelated to each other and were photographed separately; what one of them \
+contains says nothing about any other. Do not carry an answer across objects, and \
+do not compare them.
 
-Judge only from these three images. If you cannot clearly see such an item as \
-part of this object's shape, say it is not included."""
+Return one entry per (object_number, category) pair asked about. If you cannot \
+clearly see such an item as part of that object's shape, say it is not included."""
 
 
 class _Verdict(BaseModel):
@@ -124,7 +143,8 @@ class _Verdicts(BaseModel):
 
 
 class _BuiltIn(BaseModel):
-    category: str = Field(description="One of the kinds of item asked about.")
+    object_number: int = Field(description="The number of the object this answer is about.")
+    category: str = Field(description="One of the kinds of item asked about for that object.")
     already_included: bool
     reason: str = ""
 
@@ -186,11 +206,79 @@ def _isolated_views(graph: SceneGraph, obj, settings, aspect: float) -> list[byt
     ]
 
 
+def _ask_builtin(
+    ctx: PipelineContext, graph: SceneGraph, batch: list, aspect: float
+) -> list[ObjectVerification]:
+    """One call covering every parent in `batch`.
+
+    Isolation is what makes this question answerable at all — see the module
+    docstring — and it survives batching, because isolation is a property of each
+    *image*: every one still shows a single object on a blank background. What is
+    shared is the request, so the prompt has to re-establish the boundary the
+    separate calls used to get for free, hence the roster and the instruction not
+    to carry answers across objects.
+    """
+    images: list[bytes] = []
+    roster_lines = []
+    by_number: dict[int, tuple] = {}
+
+    for number, (parent, resting) in enumerate(batch, start=1):
+        first = len(images) + 1
+        images.extend(_isolated_views(graph, parent, ctx.settings, aspect))
+        categories = sorted({child.label.category for child in resting})
+        roster_lines.append(
+            f"  {number}. a {parent.label.category} — images {first}-{len(images)}; "
+            f"items the scene places on it: {', '.join(categories)}"
+        )
+        by_number[number] = (parent, resting)
+
+    answers = vlm.parse(
+        ctx,
+        "verify",
+        images,
+        BUILTIN_PROMPT.format(count=len(batch), roster="\n".join(roster_lines)),
+        _BuiltIns,
+    ).items
+
+    found: list[ObjectVerification] = []
+    for answer in answers:
+        if not answer.already_included:
+            continue
+        entry = by_number.get(answer.object_number)
+        if entry is None:
+            log.warning(
+                "verify: model referenced object %s, which was not shown", answer.object_number
+            )
+            continue
+        parent, resting = entry
+        # Every child of that category goes, not one of them. Reconstruction
+        # completes the parent from the same photo, so if it modelled in a
+        # cushion at all it modelled in the ones the photo showed — and there
+        # is no correspondence to say which loose copy matches which bump.
+        for child in resting:
+            if child.label.category != answer.category:
+                continue
+            reason = (
+                f"already part of {parent.object_id} ({parent.label.category}): {answer.reason}"
+            )
+            found.append(
+                ObjectVerification(
+                    object_id=child.object_id,
+                    verdict=ObjectVerdict.DUPLICATE,
+                    duplicate_of=parent.object_id,
+                    reason=reason,
+                )
+            )
+    return found
+
+
 def _find_builtin_duplicates(ctx: PipelineContext, graph: SceneGraph) -> list[ObjectVerification]:
     """Children whose supporting object already has that kind of thing modelled in.
 
-    One call per supporting object rather than per child: a sofa with two cushions
-    on it is one question about the sofa, not two.
+    Parents are batched rather than asked one per call: a room where a sofa, a
+    table and a shelf each hold something used to cost three calls on top of the
+    whole-scene check, and the question about one parent does not depend on the
+    answer for any other.
     """
     children: dict[str, list] = {}
     for obj in graph.objects:
@@ -199,41 +287,20 @@ def _find_builtin_duplicates(ctx: PipelineContext, graph: SceneGraph) -> list[Ob
     if not children:
         return []
 
+    batchable = [
+        (parent, resting)
+        for parent_id, resting in children.items()
+        if (parent := graph.get(parent_id)) is not None
+    ]
+    if not batchable:
+        return []
+
     width, height = Image.open(ctx.image_path).size
     aspect = width / height
 
     found: list[ObjectVerification] = []
-    for parent_id, resting in children.items():
-        parent = graph.get(parent_id)
-        if parent is None:
-            continue
-        categories = sorted({child.label.category for child in resting})
-        answers = vlm.parse(
-            ctx,
-            "verify",
-            _isolated_views(graph, parent, ctx.settings, aspect),
-            BUILTIN_PROMPT.format(category=parent.label.category, categories=", ".join(categories)),
-            _BuiltIns,
-        ).items
-
-        included = {a.category: a for a in answers if a.already_included}
-        for child in resting:
-            answer = included.get(child.label.category)
-            if answer is None:
-                continue
-            # Every child of that category goes, not one of them. Reconstruction
-            # completes the parent from the same photo, so if it modelled in a
-            # cushion at all it modelled in the ones the photo showed — and there
-            # is no correspondence to say which loose copy matches which bump.
-            reason = f"already part of {parent_id} ({parent.label.category}): {answer.reason}"
-            found.append(
-                ObjectVerification(
-                    object_id=child.object_id,
-                    verdict=ObjectVerdict.DUPLICATE,
-                    duplicate_of=parent_id,
-                    reason=reason,
-                )
-            )
+    for start in range(0, len(batchable), BUILTIN_BATCH):
+        found.extend(_ask_builtin(ctx, graph, batchable[start : start + BUILTIN_BATCH], aspect))
     return found
 
 

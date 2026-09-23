@@ -3,6 +3,7 @@ import io
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app.config import get_settings
 from app.main import app
 
 client = TestClient(app)
@@ -16,6 +17,27 @@ def _png_bytes() -> bytes:
 
 def test_health():
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_private_storage_is_not_served():
+    """Only generated scene assets belong on the public static route.
+
+    The old `/storage` mount exposed every sibling in the storage directory,
+    including the SQLite database, source photos and cached provider responses.
+    """
+    settings = get_settings()
+    private_files = (
+        settings.storage_dir / "test.db",
+        settings.uploads_dir / "private.png",
+        settings.artifacts_dir / "private.json",
+    )
+    private_files[1].write_bytes(_png_bytes())
+    private_files[2].write_text('{"private": true}')
+
+    for path in private_files:
+        assert path.exists()
+        relative = path.relative_to(settings.storage_dir).as_posix()
+        assert client.get(f"/storage/{relative}").status_code == 404
 
 
 def test_rejects_non_image_upload():

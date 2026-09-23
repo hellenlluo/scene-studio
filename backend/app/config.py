@@ -274,12 +274,11 @@ class Settings(BaseSettings):
     def storage_relative(self, path: Path | str) -> str:
         """A path under storage_dir, expressed relative to it.
 
-        Everything the browser fetches goes through the `/storage` static mount, so
-        a stored absolute filesystem path is unusable to a client — and it also
-        breaks the moment the storage directory moves, which it does between a
-        developer's machine and a test's temp dir. Storing the relative form and
-        letting the client prepend `/storage/` keeps the record portable and the
-        URL derivable.
+        Stored absolute paths break when the storage directory moves, which it does
+        between a developer's machine and a test's temp dir. Scene assets can also
+        be fetched by prepending `/storage/` to this relative form. Other storage
+        paths, including uploads and cache entries, remain private filesystem
+        references even though they use the same portable representation.
 
         Paths outside storage_dir are returned unchanged rather than raising: an
         odd path in a record is a smaller problem than a stage that cannot finish.

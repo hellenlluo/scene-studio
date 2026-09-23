@@ -30,8 +30,15 @@ app.add_middleware(
 app.include_router(jobs.router)
 app.include_router(scenes.router)
 
-# Meshes, textures and source photos are served straight off disk to the viewer.
-app.mount("/storage", StaticFiles(directory=settings.storage_dir), name="storage")
+# Only generated scene assets are public. Mounting `storage_dir` itself also serves
+# the SQLite database, uploaded source photos and cached model responses; none of
+# those are browser assets. Keeping the `/storage/scenes/...` URL prefix preserves
+# the paths already stored in scene specs while narrowing the filesystem boundary.
+app.mount(
+    "/storage/scenes",
+    StaticFiles(directory=settings.scenes_dir),
+    name="scene-assets",
+)
 
 
 @app.get("/health")

@@ -1083,7 +1083,7 @@ export interface components {
             scene_id: string;
             /**
              * Image Path
-             * @description Relative to the storage directory, like ExportResult's paths — a client builds the URL as /storage/{image_path}.
+             * @description Source-image path relative to the private storage directory. Kept for provenance and pipeline re-runs; it is not a public asset URL.
              */
             image_path: string;
             intrinsics: components["schemas"]["Intrinsics"];

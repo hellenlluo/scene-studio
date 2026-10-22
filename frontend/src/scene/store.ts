@@ -25,6 +25,8 @@ interface SceneState {
   sceneId: string | null;
   selectedObjectId: string | null;
   mode: TransformMode;
+  /** Show the exact contact/COM evidence stored on the balance certificate. */
+  showBalanceDebug: boolean;
   /**
    * Drags the user has made but not committed, by object id.
    *
@@ -42,6 +44,7 @@ interface SceneState {
   setSceneId: (sceneId: string | null) => void;
   select: (objectId: string | null) => void;
   setMode: (mode: TransformMode) => void;
+  toggleBalanceDebug: () => void;
   recordEdit: (edit: ObjectEdit) => void;
   clearEdits: () => void;
 }
@@ -53,6 +56,7 @@ export const useSceneStore = create<SceneState>((set) => ({
   // whose gizmo cannot damage a scene by being grabbed accidentally — a stray drag
   // shifts an object, where a stray scale silently invalidates its certified size.
   mode: "translate",
+  showBalanceDebug: false,
   edits: new Map(),
   // Clear the selection when the scene changes: object ids are only unique
   // within a scene, so carrying one across would highlight an unrelated object.
@@ -62,6 +66,8 @@ export const useSceneStore = create<SceneState>((set) => ({
     set({ sceneId, selectedObjectId: null, edits: new Map() }),
   select: (objectId) => set({ selectedObjectId: objectId }),
   setMode: (mode) => set({ mode }),
+  toggleBalanceDebug: () =>
+    set((state) => ({ showBalanceDebug: !state.showBalanceDebug })),
   // Merged per object, so moving something and then rotating it is one edit rather
   // than the rotation discarding the move.
   recordEdit: (edit) =>

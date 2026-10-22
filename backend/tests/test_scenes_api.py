@@ -45,6 +45,7 @@ def test_summaries_carry_the_axis_statuses():
     scenes = {s["id"]: s for s in client.get("/api/scenes").json()}
     assert scenes[SUNK]["axes"] == {
         "scale": "fail",
+        "balance": "fail",
         "stability": "fail",
         "inertial": "pass",
         "cost": "pass",

@@ -6,6 +6,7 @@ import { useSceneStore } from "../scene/store";
 import type { Physics } from "./usePhysics";
 import {
   AXES,
+  axisStatuses,
   failingObjectIds,
   isCertified,
   reasonsFor,
@@ -108,12 +109,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
     },
   });
 
-  const statuses: Record<string, string> = {
-    scale: certificate.scale_status,
-    stability: certificate.stability_status,
-    inertial: certificate.inertial_status,
-    cost: certificate.cost_status,
-  };
+  const statuses = axisStatuses(certificate);
 
   return (
     <aside className="panel">
@@ -143,6 +139,23 @@ export function CertificatePanel({ envelope, physics }: Props) {
         <p className="note">
           {/* Untested is not passed — an axis nobody ran cannot count toward a pass. */}
           no validator reached: {unchecked.join(", ")}
+        </p>
+      )}
+      {Object.entries(certificate.axis_errors ?? {}).map(([axis, error]) => (
+        <p className="note note--error" key={axis}>
+          {axis}: {error}
+        </p>
+      ))}
+
+      {certificate.scene_graph_sha256 && (
+        <p
+          className="note"
+          title={`graph ${certificate.scene_graph_sha256}\ncollision ${certificate.collision_geometry_sha256 ?? "unknown"}`}
+        >
+          certificate v{certificate.certificate_version} ·{" "}
+          {certificate.simulator_name ?? "simulator"}{" "}
+          {certificate.simulator_version ?? "unknown"} · graph{" "}
+          {certificate.scene_graph_sha256.slice(0, 8)}
         </p>
       )}
 

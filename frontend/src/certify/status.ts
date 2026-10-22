@@ -12,7 +12,7 @@
  */
 import type { AxisStatus, Certificate, SceneObject, SceneSpec } from "../api/client";
 
-export const AXES = ["scale", "stability", "inertial", "cost"] as const;
+export const AXES = ["scale", "balance", "stability", "inertial", "cost"] as const;
 export type AxisName = (typeof AXES)[number];
 
 /** What a single object's geometry should be drawn as. */
@@ -23,6 +23,7 @@ export function axisStatuses(
 ): Record<AxisName, AxisStatus> {
   return {
     scale: certificate.scale_status,
+    balance: certificate.balance_status,
     stability: certificate.stability_status,
     inertial: certificate.inertial_status,
     cost: certificate.cost_status,
@@ -62,6 +63,8 @@ export function uncheckedAxes(certificate: Certificate): AxisName[] {
 export function failingObjectIds(certificate: Certificate): Set<string> {
   const failing = new Set<string>();
   for (const check of certificate.scale ?? [])
+    if (!check.passed) failing.add(check.object_id);
+  for (const check of certificate.balance ?? [])
     if (!check.passed) failing.add(check.object_id);
   for (const check of certificate.stability ?? [])
     if (!check.passed) failing.add(check.object_id);
@@ -145,6 +148,19 @@ export function reasonsFor(
       reasons.push(`${worst.toFixed(1)}σ from its class prior (tolerance ${sigmaLimit}σ)`);
     }
     if (!check.base_inside_parent) reasons.push("base is not over its support");
+  }
+
+  for (const check of certificate.balance ?? []) {
+    if (check.object_id !== objectId || check.passed) continue;
+    if (check.contact_count < 3) {
+      reasons.push(
+        `has only ${check.contact_count} support contact${check.contact_count === 1 ? "" : "s"}; static balance needs a contact area`,
+      );
+    } else if (!check.contact_force_feasible) {
+      reasons.push(
+        `centre of mass lies ${mm(Math.max(0, -check.support_margin_m))} outside its support wrench region`,
+      );
+    }
   }
 
   // Each measurement against its own tolerance, not against zero. A check that

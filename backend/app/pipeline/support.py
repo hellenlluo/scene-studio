@@ -44,6 +44,8 @@ underneath it, and the centre alone would read the empty air beyond the edge as
 "no surface" and fall back to the box.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 
@@ -117,9 +119,68 @@ def _collision_mesh(obj: SceneObject) -> trimesh.Trimesh | None:
 # inside the solver's residual, so that number is multiplied by the finite-difference
 # Jacobian and again by every round: measured, one pass over the scene cost 22 ms and
 # a re-solve took 318 s. The gap is a *minimum* over those points, and a minimum does
-# not need every sample of a surface, only coverage of one. Striding preserves the
-# spatial spread the raster's row-major order already has.
+# not need every sample of a surface, only coverage of one. The sampler below keeps
+# exact low vertices and spreads the remaining budget over XY.
 MAX_CONTACT_SAMPLES = 128
+
+
+def _spread_xy(points: np.ndarray, limit: int) -> np.ndarray:
+    """Deterministic farthest-point sample that keeps a contact patch's extent.
+
+    A row-major stride is not a geometric sample.  In particular, a narrow sofa
+    foot can occupy one raster cell and disappear while a broad underside consumes
+    the budget.  Starting at the left-most point and repeatedly taking the point
+    farthest from those already kept preserves separated feet and polygon corners.
+    """
+    if len(points) <= limit:
+        return points
+    xy = points[:, :2]
+    first = int(np.lexsort((xy[:, 1], xy[:, 0]))[0])
+    selected = [first]
+    nearest_sq = np.sum((xy - xy[first]) ** 2, axis=1)
+    for _ in range(1, limit):
+        index = int(np.argmax(nearest_sq))
+        selected.append(index)
+        distance_sq = np.sum((xy - xy[index]) ** 2, axis=1)
+        nearest_sq = np.minimum(nearest_sq, distance_sq)
+    return points[np.asarray(selected)]
+
+
+def _underside_samples(
+    mesh: trimesh.Trimesh,
+    raster: _Grid,
+    obj: SceneObject,
+    settings: Settings,
+) -> np.ndarray:
+    """Auditable underside samples, retaining exact low collision vertices.
+
+    Raster cell centres describe broad contact faces well, but they can miss a
+    sharp or sub-cell foot completely.  That produced the `room` sofa's one-contact
+    false failure: four separated convex pieces reached exactly the same floor
+    height, while the raster happened to hit only one of their tips.  Collision
+    engines still see those vertices, so the support query must retain them too.
+    """
+    raster_points = np.column_stack([raster.cell_xy, raster.cell_lo])
+    minimum = float(mesh.vertices[:, 2].min())
+    band_limit = minimum + settings.support_burial_slack_m
+    raster_points = raster_points[raster_points[:, 2] <= band_limit]
+
+    # Vertices close enough to the base to make contact under the certificate's own
+    # tolerance are mandatory evidence.  Scale the world tolerance back into this
+    # oriented unit-scale frame.
+    contact_band = settings.max_support_gap_m / max(obj.scale, 1e-12)
+    exact_low = mesh.vertices[mesh.vertices[:, 2] <= minimum + contact_band]
+    exact_low = _spread_xy(np.unique(exact_low, axis=0), MAX_CONTACT_SAMPLES)
+    if len(exact_low) >= MAX_CONTACT_SAMPLES:
+        return exact_low
+
+    remaining = MAX_CONTACT_SAMPLES - len(exact_low)
+    raster_points = _spread_xy(np.unique(raster_points, axis=0), remaining)
+    if not len(exact_low):
+        return raster_points
+    if not len(raster_points):
+        return exact_low
+    return np.unique(np.vstack([exact_low, raster_points]), axis=0)
 
 
 @dataclass(frozen=True)
@@ -284,6 +345,16 @@ class Contact:
     polygon: an object is stable when its weight falls inside this, which is the
     toppling condition a bounding-box test only approximates."""
 
+    contacts_m: np.ndarray
+    """(k, 3) world points on the supporting surfaces.
+
+    ``contacts_xy`` is retained as the compact geometry used by the solver and
+    certifier.  The full points are the audit trail: without their heights the
+    viewer cannot show where the evidence actually came from, and a sparse sample
+    at one sofa foot looks indistinguishable from a deliberately point-supported
+    object.
+    """
+
     def over_support(self, centre_xy: np.ndarray) -> bool:
         """Whether that centre falls within the contact points' footprint.
 
@@ -403,7 +474,7 @@ class SupportHeights:
         candidates: list[SceneObject],
         floor_z: float,
         tolerance: float,
-    ) -> "Contact":
+    ) -> Contact:
         """What this object is actually touching, and whether that holds it up.
 
         Parent-free on purpose. An object rests on whatever is beneath it, and in a
@@ -437,7 +508,12 @@ class SupportHeights:
         if points is None or not len(points):
             base = self.base_of(child)
             gap = None if base is None else base - floor_z
-            return Contact(gap=gap, resting_on=None, contacts_xy=np.empty((0, 2)))
+            return Contact(
+                gap=gap,
+                resting_on=None,
+                contacts_xy=np.empty((0, 2)),
+                contacts_m=np.empty((0, 3)),
+            )
 
         position = np.asarray(child.position_m, dtype=float)
         world = position + child.scale * points
@@ -460,6 +536,7 @@ class SupportHeights:
         best_gap: float | None = None
         resting_on: str | None = None
         touching: list[np.ndarray] = []
+        touching_3d: list[np.ndarray] = []
         for x, y, z in world:
             # Nearest surface to this point, not the highest one under it.
             #
@@ -528,11 +605,15 @@ class SupportHeights:
                 best_gap, resting_on = gap, owner
             if abs(gap) <= tolerance:
                 touching.append(np.array([x, y]))
+                # The force acts at the support surface, not at the underside point
+                # which may be a few millimetres above or below it within tolerance.
+                touching_3d.append(np.array([x, y, surface]))
 
         return Contact(
             gap=best_gap,
             resting_on=resting_on,
             contacts_xy=np.asarray(touching) if touching else np.empty((0, 2)),
+            contacts_m=np.asarray(touching_3d) if touching_3d else np.empty((0, 3)),
         )
 
     def touches(self, parent: SceneObject, child: SceneObject, tolerance: float) -> bool:
@@ -658,20 +739,7 @@ def build(
             # so a pedestal contributes its feet and a book its whole bottom face.
             own = _rasterise(mesh, settings.support_grid_cell_m, settings.support_grid_max_cells)
             if own is not None and len(own.cell_xy):
-                points = np.column_stack([own.cell_xy, own.cell_lo])
-                # Only the lowest band: contact happens at the feet, and a pedestal's
-                # raster also covers the underside of its top half a metre higher.
-                band = points[:, 2] <= points[:, 2].min() + settings.support_burial_slack_m
-                points = points[band]
-                if len(points) > MAX_CONTACT_SAMPLES:
-                    # The lowest point is kept explicitly, not left to the stride.
-                    # The gap is a *minimum* over these samples, so dropping the
-                    # argmin does not lose resolution, it changes the answer.
-                    lowest = points[int(np.argmin(points[:, 2]))]
-                    points = points[:: max(1, len(points) // MAX_CONTACT_SAMPLES)]
-                    if not np.any(np.all(points == lowest, axis=1)):
-                        points = np.vstack([lowest, points])
-                undersides[obj.object_id] = points
+                undersides[obj.object_id] = _underside_samples(mesh, own, obj, settings)
         if obj.object_id in wanted:
             grid = _rasterise(mesh, settings.support_grid_cell_m, settings.support_grid_max_cells)
             if grid is not None:

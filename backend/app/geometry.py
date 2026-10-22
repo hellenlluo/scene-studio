@@ -26,6 +26,7 @@ __all__ = [
     "quat_to_matrix",
     "support_surfaces",
     "world_aabb",
+    "world_center_of_mass",
 ]
 
 # Local box faces as (axis, sign). +Z is index 2, +1.
@@ -110,6 +111,33 @@ def world_aabb(obj: SceneObject) -> tuple[np.ndarray, np.ndarray]:
         low = np.minimum(low, corners.min(axis=0))
         high = np.maximum(high, corners.max(axis=0))
     return low, high
+
+
+def world_center_of_mass(obj: SceneObject) -> np.ndarray:
+    """Mass-weighted object COM in world coordinates.
+
+    Uses the same composition as the MJCF exporter: a part origin scales with the
+    object while ``inertial.com_m`` is already stored at the object's current scale.
+    Falling back to the AABB centre keeps pre-inertia and hand-authored scenes
+    checkable without inventing a mass distribution.
+    """
+    rotation = quat_to_matrix(obj.orientation)
+    origin = np.asarray(obj.position_m, dtype=float)
+    total_mass = 0.0
+    moment = np.zeros(3)
+    for part in obj.parts:
+        inertial = part.inertial
+        if inertial is None or inertial.mass_kg <= 0.0:
+            continue
+        local = np.asarray(part.origin_m, dtype=float) * obj.scale + np.asarray(
+            inertial.com_m, dtype=float
+        )
+        moment += inertial.mass_kg * (origin + rotation @ local)
+        total_mass += inertial.mass_kg
+    if total_mass > 0.0:
+        return moment / total_mass
+    low, high = world_aabb(obj)
+    return (low + high) / 2.0
 
 
 def footprint_xy(obj: SceneObject) -> tuple[float, float]:

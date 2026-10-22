@@ -234,6 +234,72 @@ export interface components {
          * @enum {string}
          */
         AxisStatus: "pass" | "fail" | "not_applicable" | "not_run";
+        /**
+         * BalanceCheck
+         * @description Whether the observed pose admits static equilibrium under gravity.
+         *
+         *     The current contact model contains horizontal support samples, so this is the
+         *     normal-force form of contact-wrench feasibility.  It deliberately does not
+         *     claim friction or mass inference; those need general 3-D contact normals or
+         *     external-force evidence.
+         */
+        BalanceCheck: {
+            /** Object Id */
+            object_id: string;
+            /** Centre Of Mass Xy M */
+            centre_of_mass_xy_m: [
+                number,
+                number
+            ];
+            /**
+             * Centre Of Mass M
+             * @description Full world-space COM used by the check. None on legacy certificates.
+             */
+            centre_of_mass_m?: [
+                number,
+                number,
+                number
+            ] | null;
+            /** Contact Count */
+            contact_count: number;
+            /**
+             * Contact Points M
+             * @description World-space samples on the supporting surface used by the force test.
+             */
+            contact_points_m?: [
+                number,
+                number,
+                number
+            ][];
+            /**
+             * Support Polygon Xy M
+             * @description Counter-clockwise convex hull of the contact samples in world XY.
+             */
+            support_polygon_xy_m?: [
+                number,
+                number
+            ][];
+            /**
+             * Evidence Source
+             * @description collision_proxy, obb_fallback, or unavailable for a legacy result.
+             * @default unavailable
+             */
+            evidence_source: string;
+            /**
+             * Resting On
+             * @description Nearest measured supporting object, or None for the floor.
+             */
+            resting_on?: string | null;
+            /** Contact Force Feasible */
+            contact_force_feasible: boolean;
+            /**
+             * Support Margin M
+             * @description Signed XY distance from COM to the contact hull boundary. Positive is inside, negative is outside, zero is marginal.
+             */
+            support_margin_m: number;
+            /** Passed */
+            passed: boolean;
+        };
         /** Body_create_job_api_jobs_post */
         Body_create_job_api_jobs_post: {
             /** Image */
@@ -305,8 +371,42 @@ export interface components {
          * @description "Simulation-ready" as a checkable multi-axis contract rather than a vibe.
          */
         Certificate: {
+            /**
+             * Certificate Version
+             * @description Version of the certificate contract, independent of the API version.
+             * @default 1.2
+             */
+            certificate_version: string;
+            /**
+             * Generated At
+             * @description UTC time when the validators ran. None on legacy or unrun certificates.
+             */
+            generated_at?: string | null;
+            /**
+             * Scene Graph Sha256
+             * @description Hash of the exact serialized SceneGraph that was certified.
+             */
+            scene_graph_sha256?: string | null;
+            /**
+             * Collision Geometry Sha256
+             * @description Content hash of the collision meshes referenced by the scene graph.
+             */
+            collision_geometry_sha256?: string | null;
+            /** Simulator Name */
+            simulator_name?: string | null;
+            /** Simulator Version */
+            simulator_version?: string | null;
+            /**
+             * Axis Errors
+             * @description Axis to execution error. An axis listed here has status NOT_RUN.
+             */
+            axis_errors?: {
+                [key: string]: string;
+            };
             /** @default not_run */
             scale_status: components["schemas"]["AxisStatus"];
+            /** @default not_run */
+            balance_status: components["schemas"]["AxisStatus"];
             /** @default not_run */
             stability_status: components["schemas"]["AxisStatus"];
             /** @default not_run */
@@ -315,6 +415,8 @@ export interface components {
             cost_status: components["schemas"]["AxisStatus"];
             /** Scale */
             scale?: components["schemas"]["ScaleCheck"][];
+            /** Balance */
+            balance?: components["schemas"]["BalanceCheck"][];
             /** Stability */
             stability?: components["schemas"]["StabilityCheck"][];
             /** Inertial */

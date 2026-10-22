@@ -116,6 +116,16 @@ def _violation(cert: Certificate, settings: Settings, ids: set[str] | None = Non
         # reported as `converged` — with the axis still failing. Three of `room2.png`'s
         # sixteen objects fail on this alone.
         total += 0.0 if check.touching_parent else 1.0
+    for check in cert.balance:
+        if not counted(check.object_id):
+            continue
+        # Keep the repair objective aligned with the certificate.  The binary
+        # term makes a degenerate/no-contact patch visible; the continuous term
+        # rewards moving an outside COM toward the feasible wrench region.
+        total += 0.0 if check.contact_force_feasible else 1.0
+        total += max(
+            0.0, -check.support_margin_m / max(settings.max_support_gap_m, 1e-9)
+        )
     for check in cert.stability:
         if not counted(check.object_id):
             continue

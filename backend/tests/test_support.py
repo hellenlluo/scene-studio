@@ -239,6 +239,32 @@ def test_falls_back_to_the_visual_box_without_collision_geometry(settings):
     assert got == pytest.approx(0.2, abs=1e-3), "half of the 0.4 m box, centred on its origin"
 
 
+def test_contact_keeps_narrow_feet_the_raster_misses(tmp_path, settings):
+    """Low collision vertices keep four sub-cell feet in the support polygon.
+
+    This is the reduced form of the reconstructed `room` sofa: its four convex
+    foot pieces reach the same floor height, but 2 cm raster-cell centres happened
+    to intersect only one tip.  MuJoCo sees collision vertices directly, so losing
+    the other three here made static balance fail while dynamic stability passed.
+    """
+    pieces = [_slab(tmp_path, (0.8, 0.5, 0.1), (0.0, 0.0, 0.15), "body")]
+    for index, (x, y) in enumerate(((-0.35, -0.2), (-0.35, 0.2), (0.35, -0.2), (0.35, 0.2))):
+        pieces.append(_slab(tmp_path, (0.002, 0.002, 0.1), (x, y, 0.05), f"foot-{index}"))
+    sofa = _object("sofa", pieces, dims=(0.8, 0.5, 0.2))
+    graph = SceneGraph(objects=[sofa])
+
+    contact = support.build(graph, settings).contact(
+        sofa, graph.objects, graph.floor_height_m, settings.max_support_gap_m
+    )
+
+    assert len(contact.contacts_xy) >= 4
+    assert contact.contacts_xy[:, 0].min() < -0.3
+    assert contact.contacts_xy[:, 0].max() > 0.3
+    assert contact.contacts_xy[:, 1].min() < -0.15
+    assert contact.contacts_xy[:, 1].max() > 0.15
+    assert contact.contacts_m.shape[1] == 3
+
+
 def test_only_builds_grids_for_things_that_support_something(tmp_path, settings):
     plate = _slab(tmp_path, (1.0, 1.0, 0.2), (0.0, 0.0, 0.1), "plate")
     graph = SceneGraph(

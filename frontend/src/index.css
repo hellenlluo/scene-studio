@@ -109,6 +109,11 @@ nav {
   color: var(--muted);
   font-size: 0.7rem;
 }
+.toolbar-separator {
+  width: 1px;
+  height: 1.4rem;
+  background: var(--line);
+}
 .dot {
   width: 7px;
   height: 7px;
@@ -144,6 +149,61 @@ main {
   flex: 1;
   min-height: 0;
   display: grid;
+}
+
+.viewer-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.balance-legend {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: grid;
+  gap: 0.3rem;
+  max-width: 21rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(21, 23, 28, 0.9);
+  color: var(--muted);
+  font-size: 0.78rem;
+  pointer-events: none;
+  backdrop-filter: blur(5px);
+}
+.balance-legend__title {
+  color: var(--text);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.balance-legend__measurement {
+  margin-top: 0.15rem;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.balance-legend__empty,
+.balance-legend__hint {
+  line-height: 1.35;
+}
+.balance-key {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+}
+.balance-key--contact {
+  background: #f4b942;
+}
+.balance-key--com {
+  background: #d66cff;
+}
+.balance-key--region {
+  border-radius: 2px;
+  background: var(--pass);
 }
 
 .viewer-empty {

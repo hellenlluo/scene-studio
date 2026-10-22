@@ -19,7 +19,7 @@ that is evaluation rather than certification.
 
 import numpy as np
 
-from app.geometry import quat_to_matrix, world_aabb
+from app.geometry import world_aabb, world_center_of_mass
 from app.pipeline.support import SupportHeights
 from app.schemas import ScaleCheck, SceneGraph, SceneObject, Vec3
 
@@ -76,21 +76,11 @@ def _weight_centre_xy(obj: SceneObject, low: np.ndarray, high: np.ndarray) -> np
     Falls back to the box centre for an object with no inertial properties, which is
     stage 9 not having run — the hand-authored fixtures live there.
     """
-    rotation = quat_to_matrix(obj.orientation)
-    origin = np.asarray(obj.position_m, dtype=float)
-    total, moment = 0.0, np.zeros(3)
-    for part in obj.parts:
-        inertial = part.inertial
-        if inertial is None or inertial.mass_kg <= 0.0:
-            continue
-        local = np.asarray(part.origin_m, dtype=float) * obj.scale + np.asarray(
-            inertial.com_m, dtype=float
-        )
-        moment += inertial.mass_kg * (origin + rotation @ local)
-        total += inertial.mass_kg
-    if total <= 0.0:
-        return (low[:2] + high[:2]) / 2.0
-    return (moment / total)[:2]
+    # ``low`` and ``high`` remain arguments for compatibility with callers and to
+    # document the historical AABB fallback; the shared helper performs that same
+    # fallback when no inertial properties exist.
+    del low, high
+    return world_center_of_mass(obj)[:2]
 
 
 def _deviation_sigma(fitted: Vec3, prior_dims: Vec3, prior_sigma: Vec3) -> Vec3:

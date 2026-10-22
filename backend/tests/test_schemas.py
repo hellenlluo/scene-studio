@@ -151,7 +151,7 @@ def test_axes_default_to_not_run():
     nothing to check, only that nothing checked."""
     cert = Certificate()
     assert all(s is AxisStatus.NOT_RUN for s in cert.axes.values())
-    assert cert.unchecked_axes == ["scale", "stability", "inertial", "cost"]
+    assert cert.unchecked_axes == ["scale", "balance", "stability", "inertial", "cost"]
 
 
 def test_a_certificate_that_tested_nothing_is_not_certified():
@@ -165,6 +165,7 @@ def test_not_run_disqualifies_even_when_everything_else_passes():
     to be wired up."""
     cert = Certificate(
         scale_status=AxisStatus.NOT_RUN,
+        balance_status=AxisStatus.PASS,
         stability_status=AxisStatus.PASS,
         inertial_status=AxisStatus.PASS,
         cost_status=AxisStatus.PASS,
@@ -176,6 +177,7 @@ def test_not_run_disqualifies_even_when_everything_else_passes():
 def test_a_single_failing_axis_fails_the_certificate():
     cert = Certificate(
         scale_status=AxisStatus.PASS,
+        balance_status=AxisStatus.PASS,
         stability_status=AxisStatus.FAIL,
         inertial_status=AxisStatus.PASS,
         cost_status=AxisStatus.PASS,
@@ -186,6 +188,7 @@ def test_a_single_failing_axis_fails_the_certificate():
 def test_a_fully_checked_sound_scene_certifies():
     cert = Certificate(
         scale_status=AxisStatus.PASS,
+        balance_status=AxisStatus.PASS,
         stability_status=AxisStatus.PASS,
         inertial_status=AxisStatus.PASS,
         cost_status=AxisStatus.PASS,

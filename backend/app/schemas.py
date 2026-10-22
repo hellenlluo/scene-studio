@@ -9,13 +9,14 @@ Two commitments shape this file:
   object jointly with pose. A single scene-wide multiplier cannot express the
   couplings the approach rests on — a mug whose base has to sit inside a tabletop
   constrains two objects against each other, not the scene against the camera.
-* **Certification is a four-axis contract, not a boolean.** Each axis carries the
+* **Certification is a multi-axis contract, not a boolean.** Each axis carries the
   measurements it passed or failed on, because "simulation-ready" has to be
   checkable, and a bare pass/fail is not.
 
 Anisotropic scale is deliberately absent: it breaks inertia and it looks wrong.
 """
 
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
@@ -886,6 +887,46 @@ class InertialCheck(BaseModel):
     passed: bool
 
 
+class BalanceCheck(BaseModel):
+    """Whether the observed pose admits static equilibrium under gravity.
+
+    The current contact model contains horizontal support samples, so this is the
+    normal-force form of contact-wrench feasibility.  It deliberately does not
+    claim friction or mass inference; those need general 3-D contact normals or
+    external-force evidence.
+    """
+
+    object_id: str
+    centre_of_mass_xy_m: tuple[float, float]
+    centre_of_mass_m: Vec3 | None = Field(
+        default=None,
+        description="Full world-space COM used by the check. None on legacy certificates.",
+    )
+    contact_count: int
+    contact_points_m: list[Vec3] = Field(
+        default_factory=list,
+        description="World-space samples on the supporting surface used by the force test.",
+    )
+    support_polygon_xy_m: list[tuple[float, float]] = Field(
+        default_factory=list,
+        description="Counter-clockwise convex hull of the contact samples in world XY.",
+    )
+    evidence_source: str = Field(
+        default="unavailable",
+        description="collision_proxy, obb_fallback, or unavailable for a legacy result.",
+    )
+    resting_on: str | None = Field(
+        default=None,
+        description="Nearest measured supporting object, or None for the floor.",
+    )
+    contact_force_feasible: bool
+    support_margin_m: float = Field(
+        description="Signed XY distance from COM to the contact hull boundary. "
+        "Positive is inside, negative is outside, zero is marginal."
+    )
+    passed: bool
+
+
 class CostCheck(BaseModel):
     proxy_tier: ProxyTier
     mean_step_time_ms: float
@@ -896,12 +937,37 @@ class CostCheck(BaseModel):
 class Certificate(BaseModel):
     """ "Simulation-ready" as a checkable multi-axis contract rather than a vibe."""
 
+    certificate_version: str = Field(
+        default="1.2",
+        description="Version of the certificate contract, independent of the API version.",
+    )
+    generated_at: datetime | None = Field(
+        default=None,
+        description="UTC time when the validators ran. None on legacy or unrun certificates.",
+    )
+    scene_graph_sha256: str | None = Field(
+        default=None,
+        description="Hash of the exact serialized SceneGraph that was certified.",
+    )
+    collision_geometry_sha256: str | None = Field(
+        default=None,
+        description="Content hash of the collision meshes referenced by the scene graph.",
+    )
+    simulator_name: str | None = None
+    simulator_version: str | None = None
+    axis_errors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Axis to execution error. An axis listed here has status NOT_RUN.",
+    )
+
     scale_status: AxisStatus = AxisStatus.NOT_RUN
+    balance_status: AxisStatus = AxisStatus.NOT_RUN
     stability_status: AxisStatus = AxisStatus.NOT_RUN
     inertial_status: AxisStatus = AxisStatus.NOT_RUN
     cost_status: AxisStatus = AxisStatus.NOT_RUN
 
     scale: list[ScaleCheck] = Field(default_factory=list)
+    balance: list[BalanceCheck] = Field(default_factory=list)
     stability: list[StabilityCheck] = Field(default_factory=list)
     inertial: list[InertialCheck] = Field(default_factory=list)
     cost: CostCheck | None = None
@@ -951,6 +1017,7 @@ class Certificate(BaseModel):
     def axes(self) -> dict[str, AxisStatus]:
         return {
             "scale": self.scale_status,
+            "balance": self.balance_status,
             "stability": self.stability_status,
             "inertial": self.inertial_status,
             "cost": self.cost_status,
@@ -993,6 +1060,7 @@ class Certificate(BaseModel):
     def failing_object_ids(self) -> set[str]:
         """Certified failures — the red channel. Not uncertainty, which is amber."""
         failing = {c.object_id for c in self.scale if not c.passed}
+        failing |= {c.object_id for c in self.balance if not c.passed}
         failing |= {c.object_id for c in self.stability if not c.passed}
         failing |= {c.object_id for c in self.inertial if not c.passed}
         return failing

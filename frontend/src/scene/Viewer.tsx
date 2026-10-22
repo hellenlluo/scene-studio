@@ -18,6 +18,8 @@ import * as THREE from "three";
 
 import { VIEW_DIRECTION, VIEW_DISTANCE, defaultAim, frame } from "./aim";
 import type { Pose } from "../certify/physics.worker";
+import { BalanceOverlay } from "./BalanceOverlay";
+import { balanceEvidence } from "./balanceEvidence";
 import { SceneModel } from "./SceneModel";
 import { useSceneStore } from "./store";
 
@@ -188,6 +190,7 @@ interface Props {
 export function Viewer({ envelope, poses }: Props) {
   const select = useSceneStore((s) => s.select);
   const mode = useSceneStore((s) => s.mode);
+  const showBalanceDebug = useSceneStore((s) => s.showBalanceDebug);
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
   const recordEdit = useSceneStore((s) => s.recordEdit);
   const gltfPath = envelope.spec.exports?.gltf_path;
@@ -274,9 +277,23 @@ export function Viewer({ envelope, poses }: Props) {
   const url = storageUrl(gltfPath, envelope.updated_at);
   // The same version identifies the geometry, so it is what the subtree is keyed on.
   const geometryKey = `${sceneId}@${envelope.updated_at}`;
+  const balanceChecks = balanceEvidence(
+    envelope.spec.certificate,
+    selectedObjectId,
+  );
+  const inspected = balanceChecks.length === 1 ? balanceChecks[0] : null;
+  const inspectedObject = inspected
+    ? envelope.spec.graph.objects.find(
+        (object) => object.object_id === inspected.object_id,
+      )
+    : null;
+  const hasBalanceEvidence = balanceChecks.some(
+    (check) => check.centre_of_mass_m != null,
+  );
 
   return (
-    <Canvas shadows camera={CAMERA} onPointerMissed={() => select(null)}>
+    <div className="viewer-shell">
+      <Canvas shadows camera={CAMERA} onPointerMissed={() => select(null)}>
       <color attach="background" args={["#15171c"]} />
 
       {/* Reconstructed base colour maps are dark to begin with — they carry the
@@ -344,6 +361,8 @@ export function Viewer({ envelope, poses }: Props) {
       <SceneAim loaded={groups !== null} onAimed={onAimed} />
       <FrameShortcut boxes={boxes} selected={selected} />
 
+      {showBalanceDebug && ready && <BalanceOverlay checks={balanceChecks} />}
+
       {/* Attaches to the selected object's group, so a drag moves every part of it.
           `makeDefault` on OrbitControls is what lets drei suspend orbiting while a
           handle is held — without it the camera and the object move together and
@@ -359,6 +378,38 @@ export function Viewer({ envelope, poses }: Props) {
           onMouseUp={() => recordDrag(selected)}
         />
       )}
-    </Canvas>
+      </Canvas>
+      {showBalanceDebug && (
+        <div className="balance-legend" role="status">
+          <div className="balance-legend__title">
+            {inspectedObject?.label.category ??
+              (balanceChecks.length
+                ? `${balanceChecks.length} balance checks`
+                : "Balance evidence")}
+          </div>
+          {!hasBalanceEvidence ? (
+            <div className="balance-legend__empty">
+              No stored contact evidence. Recertify this scene with certificate v1.2.
+            </div>
+          ) : (
+            <>
+              <div><span className="balance-key balance-key--contact" />contact samples</div>
+              <div><span className="balance-key balance-key--com" />centre of mass</div>
+              <div><span className="balance-key balance-key--region" />support region</div>
+              {inspected && (
+                <div className="balance-legend__measurement">
+                  {inspected.contact_count} contacts · margin{" "}
+                  {(inspected.support_margin_m * 1000).toFixed(1)} mm ·{" "}
+                  {inspected.evidence_source.replaceAll("_", " ")}
+                </div>
+              )}
+            </>
+          )}
+          {!selectedObjectId && balanceChecks.length > 1 && (
+            <div className="balance-legend__hint">Select an object to isolate it.</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

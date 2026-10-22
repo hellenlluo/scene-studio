@@ -19,6 +19,8 @@ const MODES: { mode: TransformMode; label: string; key: string }[] = [
 export function Toolbar() {
   const mode = useSceneStore((s) => s.mode);
   const setMode = useSceneStore((s) => s.setMode);
+  const showBalanceDebug = useSceneStore((s) => s.showBalanceDebug);
+  const toggleBalanceDebug = useSceneStore((s) => s.toggleBalanceDebug);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -31,10 +33,11 @@ export function Toolbar() {
 
       const match = MODES.find((m) => m.key === event.key.toLowerCase());
       if (match) setMode(match.mode);
+      if (event.key.toLowerCase() === "b") toggleBalanceDebug();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setMode]);
+  }, [setMode, toggleBalanceDebug]);
 
   return (
     <div className="toolbar" role="group" aria-label="Transform mode">
@@ -51,6 +54,17 @@ export function Toolbar() {
           <span className="tool-key">{m.key.toUpperCase()}</span>
         </button>
       ))}
+      <span className="toolbar-separator" aria-hidden="true" />
+      <button
+        type="button"
+        className={`tool ${showBalanceDebug ? "tool--active" : ""}`}
+        aria-pressed={showBalanceDebug}
+        onClick={toggleBalanceDebug}
+        title="Show certificate contact and centre-of-mass evidence (B)"
+      >
+        Balance
+        <span className="tool-key">B</span>
+      </button>
     </div>
   );
 }

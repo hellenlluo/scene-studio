@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import type { Certificate, ScaleCheck, StabilityCheck } from '../api/client'
+import type { BalanceCheck, Certificate, ScaleCheck, StabilityCheck } from '../api/client'
 import {
   failingObjectIds,
   isCertified,
@@ -20,10 +20,12 @@ import {
 function certificate(overrides: Partial<Certificate> = {}): Certificate {
   return {
     scale_status: 'pass',
+    balance_status: 'pass',
     stability_status: 'pass',
     inertial_status: 'pass',
     cost_status: 'pass',
     scale: [],
+    balance: [],
     stability: [],
     inertial: [],
     cost: null,
@@ -32,6 +34,22 @@ function certificate(overrides: Partial<Certificate> = {}): Certificate {
     prior_deviation_tolerance_sigma: 3,
     ...overrides,
   } as Certificate
+}
+
+function balanceCheck(
+  objectId: string,
+  overrides: Partial<BalanceCheck> = {},
+): BalanceCheck {
+  return {
+    object_id: objectId,
+    centre_of_mass_xy_m: [0, 0],
+    contact_count: 4,
+    evidence_source: 'collision_proxy',
+    contact_force_feasible: true,
+    support_margin_m: 0.05,
+    passed: true,
+    ...overrides,
+  }
 }
 
 function scaleCheck(objectId: string, overrides: Partial<ScaleCheck> = {}): ScaleCheck {
@@ -80,6 +98,7 @@ describe('isCertified', () => {
   it('fails when nothing was checked at all', () => {
     const untested = certificate({
       scale_status: 'not_run',
+      balance_status: 'not_run',
       stability_status: 'not_run',
       inertial_status: 'not_run',
       cost_status: 'not_run',
@@ -107,9 +126,10 @@ describe('failingObjectIds', () => {
   it('gathers across every axis', () => {
     const cert = certificate({
       scale: [scaleCheck('mug', { passed: false }), scaleCheck('table')],
+      balance: [balanceCheck('lamp', { passed: false })],
       stability: [stabilityCheck('cabinet', { passed: false })],
     })
-    expect(failingObjectIds(cert)).toEqual(new Set(['mug', 'cabinet']))
+    expect(failingObjectIds(cert)).toEqual(new Set(['mug', 'lamp', 'cabinet']))
   })
 
   it('is empty for a sound scene', () => {
@@ -139,6 +159,28 @@ describe('statusFor', () => {
 })
 
 describe('reasonsFor', () => {
+  it('explains static balance failure separately from dynamic settling', () => {
+    const cert = certificate({
+      balance: [
+        balanceCheck('lamp', {
+          contact_force_feasible: false,
+          support_margin_m: -0.018,
+          passed: false,
+        }),
+      ],
+    })
+    expect(reasonsFor('lamp', cert)).toEqual([
+      'centre of mass lies 18 mm outside its support wrench region',
+    ])
+  })
+
+  it('reports a degenerate contact patch', () => {
+    const cert = certificate({
+      balance: [balanceCheck('lamp', { contact_count: 1, passed: false })],
+    })
+    expect(reasonsFor('lamp', cert)[0]).toContain('only 1 support contact')
+  })
+
   it('does not report a gap that is inside the tolerance', () => {
     // The regression this exists for. An object over-hanging its support fails on
     // containment while its height is fine, and every scale reason used to be

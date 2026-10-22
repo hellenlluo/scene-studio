@@ -32,6 +32,7 @@ export type SceneEditResponse = Omit<
 export type Certificate = components['schemas']['Certificate']
 export type SceneObject = components['schemas']['SceneObject']
 export type ScaleCheck = components['schemas']['ScaleCheck']
+export type BalanceCheck = components['schemas']['BalanceCheck']
 export type StabilityCheck = components['schemas']['StabilityCheck']
 export type InertialCheck = components['schemas']['InertialCheck']
 export type AxisStatus = components['schemas']['AxisStatus']

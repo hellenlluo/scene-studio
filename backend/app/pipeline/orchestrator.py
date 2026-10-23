@@ -230,6 +230,11 @@ def run_pipeline(
         graph, cert, repairs = repaired.graph, repaired.certificate, repaired.actions
         report(StageName.REPAIR, "done", None)
 
+    # Repair may have changed the graph after stage 6. Certification has already
+    # settled that final graph, so carry its measured displacement into the stored
+    # diagnostics instead of labelling the repaired pose with pre-repair evidence.
+    diagnostics = solve.finalise_diagnostics(solved.diagnostics, cert)
+
     report(StageName.EXPORT, "running", None)
     out = ctx.workdir()
     # Relative to storage_dir, because these are what the browser fetches through
@@ -248,7 +253,7 @@ def run_pipeline(
         certificate=cert,
         anchors=anchors,
         weights=weights,
-        diagnostics=solved.diagnostics,
+        diagnostics=diagnostics,
         repairs_applied=repairs,
         removed_objects=verified.removed,
         exports=exports,

@@ -8,6 +8,8 @@ const CONTACT_COLOUR = "#f4b942";
 const COM_COLOUR = "#d66cff";
 const PASS_COLOUR = "#4caf7d";
 const FAIL_COLOUR = "#d94b4b";
+const CONTACT_RADIUS_M = 0.006;
+const COM_RADIUS_M = 0.014;
 
 type Point2 = [number, number];
 type Point3 = [number, number, number];
@@ -124,7 +126,7 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
           renderOrder={24}
           raycast={ignoreRaycast}
         >
-          <sphereGeometry args={[0.018, 12, 8]} />
+          <sphereGeometry args={[CONTACT_RADIUS_M, 12, 8]} />
           <meshBasicMaterial color={CONTACT_COLOUR} depthTest={false} />
         </mesh>
       ))}
@@ -142,7 +144,7 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
         />
       )}
       <mesh position={renderPoint(centre)} renderOrder={26} raycast={ignoreRaycast}>
-        <sphereGeometry args={[0.035, 16, 12]} />
+        <sphereGeometry args={[COM_RADIUS_M, 16, 12]} />
         <meshBasicMaterial color={COM_COLOUR} depthTest={false} />
       </mesh>
       {hasSupport && (

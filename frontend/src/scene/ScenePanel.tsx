@@ -9,6 +9,7 @@ import {
   hasGltf,
 } from "./export";
 import { useSceneStore } from "./store";
+import { outcomeReason } from "./outcome";
 
 interface Props {
   scenes: SceneSummary[];
@@ -59,7 +60,12 @@ export function ScenePanel({ scenes, envelope }: Props) {
             >
               <span className="scene-name">{summary.name}</span>
               <span
-                className={`dot dot--${summary.certified ? "pass" : "fail"}`}
+                className={`dot dot--${summary.outcome === "ready" ? "pass" : "attention"}`}
+                title={
+                  summary.outcome === "ready"
+                    ? "ready"
+                    : summary.outcome_reasons.map(outcomeReason).join("; ")
+                }
               />
               <span className="scene-count">{summary.object_count} obj</span>
             </button>
@@ -77,6 +83,10 @@ export function ScenePanel({ scenes, envelope }: Props) {
             </dd>
             <dt>objects</dt>
             <dd>{graph?.objects.length ?? 0}</dd>
+            <dt>result</dt>
+            <dd className={`result result--${envelope.spec.outcome}`}>
+              {envelope.spec.outcome === "ready" ? "ready" : "needs attention"}
+            </dd>
             <dt>floor</dt>
             <dd>{((graph?.floor_height_m ?? 0) * 1000).toFixed(0)} mm</dd>
             {/* Non-zero means the scene was moved onto the origin from wherever the

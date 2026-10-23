@@ -17,7 +17,14 @@ type Always<T, K extends keyof T> = Omit<T, K> & Required<Pick<T, K>>
 
 export type SceneSpec = Always<
   components['schemas']['SceneSpec'],
-  'certificate' | 'exports' | 'anchors' | 'weights' | 'diagnostics' | 'repairs_applied'
+  | 'certificate'
+  | 'exports'
+  | 'anchors'
+  | 'weights'
+  | 'diagnostics'
+  | 'repairs_applied'
+  | 'outcome'
+  | 'outcome_reasons'
 >
 
 export type SceneEnvelope = Omit<components['schemas']['SceneEnvelope'], 'spec'> & {
@@ -25,10 +32,11 @@ export type SceneEnvelope = Omit<components['schemas']['SceneEnvelope'], 'spec'>
 }
 export type SceneSummary = components['schemas']['SceneSummary']
 export type RepairResponse = components['schemas']['RepairResponse']
+export type SupportChange = components['schemas']['SupportChange']
 export type SceneEditResponse = Omit<
   components['schemas']['SceneEditResponse'],
-  'scene' | 'actions'
-> & { scene: SceneEnvelope; actions: RepairAction[] }
+  'scene' | 'actions' | 'support_changes'
+> & { scene: SceneEnvelope; actions: RepairAction[]; support_changes: SupportChange[] }
 export type Certificate = components['schemas']['Certificate']
 export type SceneObject = components['schemas']['SceneObject']
 export type ScaleCheck = components['schemas']['ScaleCheck']

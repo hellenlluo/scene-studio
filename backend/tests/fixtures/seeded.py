@@ -18,7 +18,7 @@ from app.export import gltf, mjcf
 from app.geometry import recentre
 from app.models import Job, JobState, Scene
 from app.pipeline.base import PipelineContext
-from app.schemas import ExportResult, Intrinsics, SceneSpec
+from app.schemas import ExportResult, Intrinsics, SceneOutcome, SceneSpec, SolveDiagnostics
 from tests.fixtures import scenes
 
 # scene_id -> factory name. Two on purpose: one that certifies and one that does
@@ -52,12 +52,19 @@ def build_spec(scene_id: str, factory_name: str) -> SceneSpec:
     ctx.image_path.write_bytes(scene_id.encode())
 
     out = ctx.workdir()
+    certificate = certify.run(ctx, graph)
+    max_drift = max((check.com_displacement_m for check in certificate.stability), default=0.0)
     return SceneSpec(
         scene_id=scene_id,
         image_path=settings.storage_relative(ctx.image_path),
         intrinsics=PLACEHOLDER_INTRINSICS,
         graph=graph,
-        certificate=certify.run(ctx, graph),
+        certificate=certificate,
+        diagnostics=SolveDiagnostics(
+            converged=True,
+            settled=certificate.passed,
+            max_settle_drift_m=max_drift,
+        ),
         exports=ExportResult(
             mjcf_path=settings.storage_relative(mjcf.write_mjcf(graph, out)),
             gltf_path=settings.storage_relative(gltf.write_gltf(graph, out)),
@@ -86,7 +93,11 @@ def seed() -> list[str]:
             db.add(
                 Job(
                     id=scene_id,
-                    state=JobState.SUCCEEDED,
+                    state=(
+                        JobState.SUCCEEDED
+                        if spec.outcome is SceneOutcome.READY
+                        else JobState.NEEDS_ATTENTION
+                    ),
                     image_path=spec.image_path,
                     finished_at=datetime.now(UTC),
                 )

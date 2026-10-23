@@ -18,6 +18,7 @@ from app.schemas import (
     Provenance,
     RepairAction,
     SceneEditRequest,
+    SceneOutcome,
     SceneSpec,
 )
 
@@ -31,6 +32,8 @@ class SceneSummary(BaseModel):
     updated_at: datetime
     object_count: int
     certified: bool
+    outcome: SceneOutcome
+    outcome_reasons: list[str]
     axes: dict[str, AxisStatus]
 
 
@@ -75,18 +78,36 @@ class RepairResponse(BaseModel):
     rounds_used: int
 
 
+class SupportChange(BaseModel):
+    """A support edge changed while committing an edit.
+
+    ``None`` is the floor in both fields.  Returning both ends makes automatic
+    re-parenting visible to the user instead of leaving them to infer it from the
+    final object list.
+    """
+
+    object_id: str
+    previous_support_id: str | None
+    new_support_id: str | None
+
+
 class SceneEditResponse(BaseModel):
-    """The committed scene, plus what repairing it did.
+    """The committed scene, plus every structural correction made along the way.
 
     The actions are not decoration. A commit now repairs as well as re-solves, and
     a repair that moved an object without saying so is the silent-change problem
     the endpoint used to avoid by not repairing at all. Reported here so the client
     can show what a drag actually cost — including the proposals that were tried
     and reverted, which `RepairAction.improved` distinguishes.
+
+    Support changes are separate because re-deriving a stale parent happens before
+    repair.  It is a consequence of the edit, not a repair proposal, but it is still
+    a graph change the user should be told about.
     """
 
     scene: SceneEnvelope
-    actions: list[RepairAction] = []
+    actions: list[RepairAction]
+    support_changes: list[SupportChange]
 
 
 def _envelope(scene: Scene) -> SceneEnvelope:
@@ -107,6 +128,8 @@ def list_scenes(db: Session = Depends(get_db)) -> list[SceneSummary]:
                 updated_at=scene.updated_at,
                 object_count=len(spec.graph.objects),
                 certified=spec.certificate.passed,
+                outcome=spec.outcome,
+                outcome_reasons=spec.outcome_reasons,
                 axes=spec.certificate.axes,
             )
         )
@@ -169,6 +192,8 @@ def repair_scene(scene_id: str, db: Session = Depends(get_db)) -> RepairResponse
     out = ctx.workdir()
     spec.graph = result.graph
     spec.certificate = result.certificate
+    spec.diagnostics = solve.finalise_diagnostics(spec.diagnostics, spec.certificate)
+    spec.refresh_outcome()
     # Appended, not replaced: a scene can be repaired more than once and the
     # history of what was corrected is the interesting part.
     spec.repairs_applied = [*spec.repairs_applied, *result.actions]
@@ -234,6 +259,7 @@ def edit_scene(
 
     settings = get_settings()
     spec = SceneSpec.model_validate(scene.spec)
+    supports_before = {obj.object_id: obj.supported_by for obj in spec.graph.objects}
 
     known_objects = {o.object_id for o in spec.graph.objects}
     if unknown := {e.object_id for e in edit.objects} - known_objects:
@@ -272,26 +298,29 @@ def edit_scene(
     ctx = PipelineContext.create(scene.job_id, settings.storage_dir / spec.image_path)
     actions: list[RepairAction] = []
     free: set[str] = set()
+    touched = {change.object_id for change in edit.objects}
+    touched |= {anchor.object_id for anchor in edit.anchors}
+
+    # **Re-derive support before anything reads it.** This also applies to an exact
+    # (`resolve: false`) pose commit from paused browser physics. That path stores
+    # the equilibrium pose verbatim rather than asking the solver to move it again,
+    # but a clock that tipped onto a different face can still have a stale support
+    # edge. Graph bookkeeping is not a pose correction. Explicit parents remain
+    # user decisions and are never replaced.
+    geometry_touched = {
+        change.object_id
+        for change in edit.objects
+        if change.position_m is not None
+        or change.orientation is not None
+        or change.scale is not None
+    }
+    reconsider = geometry_touched - {
+        change.object_id for change in edit.objects if change.supported_by is not None
+    }
+    if reconsider:
+        spec.graph = reconcile.resolve_supports(spec.graph, settings, reconsider)
+
     if edit.resolve:
-        touched = {change.object_id for change in edit.objects}
-        touched |= {anchor.object_id for anchor in edit.anchors}
-
-        # **Re-derive support before anything reads it.** A drag carries a new
-        # position and no new parent, so without this the graph still records where
-        # the object used to rest and stage 6 dutifully closes the gap to it:
-        # measured on `room2`, a book dropped on the side table at z=0.584 came back
-        # from solve at z=0.015, on the floor underneath it. Same arbitration stage 5
-        # uses, scoped to the objects the user moved — see `resolve_supports`.
-        #
-        # Except where the user named a parent themselves. An explicit choice is not
-        # something to re-derive; that is the one case where the recorded edge is
-        # about the present rather than the past.
-        reconsider = touched - {
-            change.object_id for change in edit.objects if change.supported_by is not None
-        }
-        if reconsider:
-            spec.graph = reconcile.resolve_supports(spec.graph, settings, reconsider)
-
         # Only what the user touched, plus whatever rests on it. A full re-solve
         # moves objects nobody edited: measured on `room2.png` it took the scale axis
         # from 6 failures to 9, and with a third of the scene sitting within 4 mm of
@@ -334,6 +363,9 @@ def edit_scene(
         # corrected is the interesting part.
         spec.repairs_applied = [*spec.repairs_applied, *actions]
 
+    spec.diagnostics = solve.finalise_diagnostics(spec.diagnostics, spec.certificate)
+    spec.refresh_outcome()
+
     out = ctx.workdir()
     # Both exports, because they are pure functions of the graph and a viewer
     # showing the pre-edit geometry would make the edit look like it did nothing.
@@ -345,4 +377,16 @@ def edit_scene(
     scene.spec = spec.model_dump(mode="json")
     db.commit()
     db.refresh(scene)
-    return SceneEditResponse(scene=_envelope(scene), actions=actions)
+    supports_after = {obj.object_id: obj.supported_by for obj in spec.graph.objects}
+    support_changes = [
+        SupportChange(
+            object_id=obj.object_id,
+            previous_support_id=supports_before[obj.object_id],
+            new_support_id=supports_after[obj.object_id],
+        )
+        for obj in spec.graph.objects
+        if supports_after[obj.object_id] != supports_before[obj.object_id]
+    ]
+    return SceneEditResponse(
+        scene=_envelope(scene), actions=actions, support_changes=support_changes
+    )

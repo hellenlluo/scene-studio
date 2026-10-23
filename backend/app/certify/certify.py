@@ -32,7 +32,7 @@ from . import balance, cost, inertial, scale, stability
 __all__ = ["Certificate", "balance", "cost", "inertial", "run", "scale", "stability"]
 
 log = logging.getLogger(__name__)
-CERTIFICATE_VERSION = "1.2"
+CERTIFICATE_VERSION = "1.3"
 
 
 def _scene_graph_sha256(graph: SceneGraph) -> str:

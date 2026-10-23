@@ -152,7 +152,15 @@ export function reasonsFor(
 
   for (const check of certificate.balance ?? []) {
     if (check.object_id !== objectId || check.passed) continue;
-    if (check.contact_count < 3) {
+    if (check.failure_kind === "intrinsic_imbalance") {
+      reasons.push(
+        `centre of mass lies ${mm(Math.max(0, -check.full_base_margin_m))} outside its complete base; sliding cannot fix it`,
+      );
+    } else if (check.failure_kind === "partial_support") {
+      reasons.push(
+        `part of its base is unsupported; centre of mass lies ${mm(Math.max(0, -check.support_margin_m))} outside the supported region`,
+      );
+    } else if (check.contact_count < 3) {
       reasons.push(
         `has only ${check.contact_count} support contact${check.contact_count === 1 ? "" : "s"}; static balance needs a contact area`,
       );

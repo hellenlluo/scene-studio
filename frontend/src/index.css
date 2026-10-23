@@ -6,6 +6,7 @@
   --muted: #858c99;
   --pass: #4caf7d;
   --fail: #d94b4b;
+  --attention: #f4b942;
   --accent: #4a9eff;
 
   color-scheme: dark;
@@ -124,6 +125,9 @@ nav {
 }
 .dot--fail {
   background: var(--fail);
+}
+.dot--attention {
+  background: var(--attention);
 }
 
 /* Symmetric sidebars, so the canvas is centred on the screen and the world origin —
@@ -368,6 +372,14 @@ main {
 .verdict--fail {
   color: var(--fail);
 }
+.verdict--attention,
+.note--attention,
+.result--needs_attention {
+  color: var(--attention);
+}
+.result--ready {
+  color: var(--pass);
+}
 
 .note {
   color: var(--muted);
@@ -470,7 +482,8 @@ main {
   border-bottom: 1px solid var(--line);
 }
 .physics-toggle,
-.physics-reset {
+.physics-reset,
+.physics-commit {
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -481,11 +494,18 @@ main {
   cursor: pointer;
 }
 .physics-toggle:hover:not(:disabled),
-.physics-reset:hover {
+.physics-reset:hover,
+.physics-commit:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
 }
-.physics-toggle:disabled {
+.physics-commit {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.physics-toggle:disabled,
+.physics-commit:disabled {
+  border-color: var(--line);
   color: var(--muted);
   cursor: default;
 }

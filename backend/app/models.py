@@ -16,6 +16,7 @@ class JobState(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    NEEDS_ATTENTION = "needs_attention"
     FAILED = "failed"
 
 

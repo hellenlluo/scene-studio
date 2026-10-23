@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.db import SessionLocal, init_db
 from app.models import Job, JobState, Scene
 from app.pipeline.orchestrator import run_pipeline
-from app.schemas import SceneSpec, StageName
+from app.schemas import SceneOutcome, SceneSpec, StageName
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ def seed_photo(image_path: Path, scene_id: str | None = None) -> str:
     print(f"\n  {scene_id}: {len(spec.graph.objects)} objects")
     print(f"    axes     : { {k: v.value for k, v in cert.axes.items()} }")
     print(f"    certified: {cert.passed}")
+    print(f"    outcome   : {spec.outcome.value}")
+    if spec.outcome_reasons:
+        print(f"    reasons   : {spec.outcome_reasons}")
     print(f"    failing  : {sorted(cert.failing_object_ids())}")
     print(f"    exports  : {spec.exports.gltf_path}")
     return scene_id
@@ -61,7 +64,11 @@ def _store(scene_id: str, name: str, spec: SceneSpec) -> None:
         db.add(
             Job(
                 id=scene_id,
-                state=JobState.SUCCEEDED,
+                state=(
+                    JobState.SUCCEEDED
+                    if spec.outcome is SceneOutcome.READY
+                    else JobState.NEEDS_ATTENTION
+                ),
                 image_path=spec.image_path,
                 finished_at=datetime.now(UTC),
             )

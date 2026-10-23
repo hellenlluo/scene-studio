@@ -389,7 +389,7 @@ export function Viewer({ envelope, poses }: Props) {
           </div>
           {!hasBalanceEvidence ? (
             <div className="balance-legend__empty">
-              No stored contact evidence. Recertify this scene with certificate v1.2.
+              No stored contact evidence. Recertify this scene with certificate v1.3.
             </div>
           ) : (
             <>

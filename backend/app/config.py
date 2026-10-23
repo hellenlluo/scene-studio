@@ -252,6 +252,31 @@ class Settings(BaseSettings):
 
     max_repair_rounds: int = 10
 
+    repair_balance_margin_m: float = Field(
+        default=0.01,
+        ge=0.0,
+        description="Robustness margin targeted by balance-driven repairs. A pose "
+        "exactly on the edge is mathematically feasible but too brittle for a "
+        "reconstructed contact grid, so recentering and COM inference aim 1 cm "
+        "inside the feasible region before MuJoCo revalidates the result.",
+    )
+    repair_min_support_coverage: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of an object's sampled base that should have "
+        "support before a dynamically unstable, marginal placement is considered "
+        "robust. This is a repair trigger, not a certification threshold.",
+    )
+    max_com_inference_m: float = Field(
+        default=0.10,
+        gt=0.0,
+        description="Largest hidden centre-of-mass correction repair may infer from "
+        "the photographed fact that an object is standing. Larger corrections are "
+        "left unresolved because they more likely indicate bad collision geometry "
+        "or orientation than a plausible internal mass distribution.",
+    )
+
     # Beyond this, the support *relation* is more likely wrong than the position,
     # and moving the object would destroy information rather than correct it. The
     # motivating case: a wall-mounted picture read as floor-supported, which repair

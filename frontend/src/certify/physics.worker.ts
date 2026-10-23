@@ -36,7 +36,8 @@ export type Command =
   | StartMessage
   | { type: 'step'; seconds: number }
   | { type: 'reset' }
-  | { type: 'stop' }
+  | { type: 'pause' }
+  | { type: 'resume' }
 
 export interface Pose {
   objectId: string
@@ -186,8 +187,10 @@ self.onmessage = async (event: MessageEvent<Command>) => {
       lastTime = 0
       running = true
       report()
-    } else if (command.type === 'stop') {
+    } else if (command.type === 'pause') {
       running = false
+    } else if (command.type === 'resume') {
+      running = true
     }
   } catch (error) {
     postMessage({

@@ -241,12 +241,12 @@ def test_committing_re_certifies():
 
 
 def test_committing_without_resolving_does_not_repair():
-    """`resolve: false` stores the edit and nothing else.
+    """`resolve: false` stores the pose without moving it again.
 
     Repair rides on the same flag as the solve, because both are corrections and a
     client asking for the pose to be stored verbatim wants neither. The flag is the
     whole gate: with it off there is no free set, so there is nothing repair would
-    be allowed to touch even if it ran.
+    be allowed to touch even if it ran. Support bookkeeping may still be refreshed.
     """
     body = client.put(
         f"/api/scenes/{SOUND}",
@@ -258,6 +258,42 @@ def test_committing_without_resolving_does_not_repair():
 
     assert body["scene"]["spec"]["repairs_applied"] == []
     assert body["actions"] == []
+
+
+def test_an_exact_physics_pose_refreshes_support_without_being_re_solved():
+    """Paused browser physics is an exact pose commit, not a stale graph commit."""
+    spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
+    cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
+    target = [0.0, 0.0, 0.75 + 0.46]  # base exactly on the table top
+    assert cabinet["supported_by"] is None
+
+    body = client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            "objects": [
+                {
+                    "object_id": "cabinet",
+                    "position_m": target,
+                    "orientation": [0.9961947, 0.0, 0.0, 0.0871557],
+                }
+            ],
+            "resolve": False,
+        },
+    ).json()
+
+    stored = next(
+        o for o in body["scene"]["spec"]["graph"]["objects"] if o["object_id"] == "cabinet"
+    )
+    assert stored["position_m"] == pytest.approx(target, abs=1e-6)
+    assert stored["orientation"] == pytest.approx([0.9961947, 0.0, 0.0, 0.0871557])
+    assert stored["supported_by"] == "table"
+    assert body["support_changes"] == [
+        {
+            "object_id": "cabinet",
+            "previous_support_id": None,
+            "new_support_id": "table",
+        }
+    ]
 
 
 def test_committing_repairs_only_what_the_edit_reached():
@@ -439,13 +475,21 @@ def test_dragging_an_object_onto_something_reparents_it():
     assert cabinet["supported_by"] is None, "the fixture should start on the floor"
 
     # Base at the tabletop (z=0.75), centred over it: dropped squarely on the table.
-    client.put(
+    response = client.put(
         f"/api/scenes/{SOUND}",
         json={
             "objects": [{"object_id": "cabinet", "position_m": [0.0, 0.0, 0.75 + 0.46]}],
             "resolve": True,
         },
     )
+    assert response.status_code == 200
+    assert response.json()["support_changes"] == [
+        {
+            "object_id": "cabinet",
+            "previous_support_id": None,
+            "new_support_id": "table",
+        }
+    ]
 
     spec = client.get(f"/api/scenes/{SOUND}").json()["spec"]
     cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
@@ -470,3 +514,21 @@ def test_an_explicit_parent_is_not_re_derived():
     cabinet = next(o for o in spec["graph"]["objects"] if o["object_id"] == "cabinet")
 
     assert cabinet["supported_by"] == "table"
+
+
+def test_a_commit_with_unchanged_support_reports_no_support_change():
+    """The response is an audit of real graph changes, not every support edge that
+    happened to be reconsidered while committing."""
+    before = _mug_position(SOUND)
+    response = client.put(
+        f"/api/scenes/{SOUND}",
+        json={
+            "objects": [
+                {"object_id": "mug", "position_m": [before[0] + 0.01, before[1], before[2]]}
+            ],
+            "resolve": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["support_changes"] == []

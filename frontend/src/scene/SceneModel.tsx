@@ -48,9 +48,10 @@ interface Props {
   /**
    * Live physics poses by object id, or undefined when physics is off.
    *
-   * Applied over the solved pose rather than replacing it: the groups are rebuilt
-   * from `graph` whenever the scene changes, so turning physics off restores the
-   * server's placement without anything having to be undone.
+   * Applied over the solved pose rather than replacing it. When physics is stopped,
+   * the effect below explicitly restores every group from `graph`; merely clearing
+   * this map is not enough because three.js keeps the last transform written to an
+   * object until something overwrites it.
    */
   poses?: Map<string, Pose>;
 }
@@ -129,21 +130,26 @@ export function SceneModel({
 
   // Physics poses land straight on the object frames. Writing the group rather than
   // going through React state keeps a 60 Hz stream off the reconciler; the groups
-  // are the same objects three.js is already drawing.
+  // are the same objects three.js is already drawing. A missing physics pose falls
+  // back to the stored graph pose. That fallback is important when physics is
+  // stopped: clearing the pose map alone would otherwise leave each mutable three.js
+  // group frozen at its final simulated transform.
   useLayoutEffect(() => {
-    if (!poses) return;
-    for (const [objectId, group] of groups) {
-      const pose = poses.get(objectId);
-      if (!pose) continue;
-      group.position.set(...pose.position);
+    for (const object of graph.objects) {
+      const group = groups.get(object.object_id);
+      if (!group) continue;
+      const pose = poses?.get(object.object_id);
+      const position = pose?.position ?? object.position_m;
+      const quaternion = pose?.quaternion ?? object.orientation;
+      group.position.set(...(position as [number, number, number]));
       group.quaternion.set(
-        pose.quaternion[1],
-        pose.quaternion[2],
-        pose.quaternion[3],
-        pose.quaternion[0],
+        quaternion[1],
+        quaternion[2],
+        quaternion[3],
+        quaternion[0],
       );
     }
-  }, [poses, groups]);
+  }, [poses, groups, graph]);
 
   useEffect(() => {
     model.traverse((node) => {

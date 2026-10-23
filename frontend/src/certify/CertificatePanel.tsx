@@ -3,16 +3,18 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SceneEnvelope, SceneObject } from "../api/client";
 import { api } from "../api/client";
 import { useSceneStore } from "../scene/store";
+import { outcomeReason } from "../scene/outcome";
 import type { Physics } from "./usePhysics";
 import {
   AXES,
   axisStatuses,
   failingObjectIds,
-  isCertified,
   reasonsFor,
   supportOf,
   uncheckedAxes,
 } from "./status";
+import { supportChangeMessage } from "./supportChanges";
+import { physicsPoseEdits } from "./physicsEdits";
 
 interface Props {
   envelope: SceneEnvelope;
@@ -69,7 +71,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
   const select = useSceneStore((s) => s.select);
   const queryClient = useQueryClient();
 
-  const certified = isCertified(certificate);
+  const ready = envelope.spec.outcome === "ready";
   const unchecked = uncheckedAxes(certificate);
   const failing = failingObjectIds(certificate);
   const displayNames = objectDisplayNames(envelope.spec.graph.objects);
@@ -109,6 +111,30 @@ export function CertificatePanel({ envelope, physics }: Props) {
     },
   });
 
+  const pausedPoseEdits =
+    physics.state === "paused"
+      ? physicsPoseEdits(envelope.spec.graph.objects, physics.poses)
+      : [];
+  const commitPhysics = useMutation({
+    mutationFn: () =>
+      api.editScene(envelope.spec.scene_id, {
+        objects: pausedPoseEdits,
+        anchors: [],
+        // Preserve exactly what the user approved in MuJoCo. The backend still
+        // refreshes support edges and recertifies, but does not solve the pose back
+        // toward the original photograph or run an automatic repair over it.
+        resolve: false,
+      }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        ["scene", result.scene.spec.scene_id],
+        result.scene,
+      );
+      queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      physics.disable();
+    },
+  });
+
   const statuses = axisStatuses(certificate);
 
   return (
@@ -131,10 +157,16 @@ export function CertificatePanel({ envelope, physics }: Props) {
           one being shown. Confidently wrong and not-yet-checked are different
           things and the design keeps them in separate channels. */}
       <p
-        className={`verdict verdict--${dirty ? "stale" : certified ? "pass" : "fail"}`}
+        className={`verdict verdict--${dirty ? "stale" : ready ? "pass" : "attention"}`}
       >
-        {dirty ? "UNCOMMITTED EDITS" : certified ? "CERTIFIED" : "NOT CERTIFIED"}
+        {dirty ? "UNCOMMITTED EDITS" : ready ? "READY" : "NEEDS ATTENTION"}
       </p>
+      {!dirty && !ready &&
+        envelope.spec.outcome_reasons.map((reason) => (
+          <p className="note note--attention" key={reason}>
+            {outcomeReason(reason)}
+          </p>
+        ))}
       {unchecked.length > 0 && (
         <p className="note">
           {/* Untested is not passed — an axis nobody ran cannot count toward a pass. */}
@@ -191,17 +223,24 @@ export function CertificatePanel({ envelope, physics }: Props) {
         </div>
       )}
 
-      {/* What committing corrected, shown outside the `dirty` block because it
+      {/* What committing changed or corrected, shown outside the `dirty` block because it
           describes the commit that just finished — by which point there are no
           uncommitted edits left and that block is gone.
 
           Shown at all because a commit now repairs, and a repair that moved
           something without saying so is exactly the silent change this endpoint
           used to avoid by never repairing. Reverted proposals are listed too: what
-          was tried and did not work is what you need when a scene will not
-          certify. */}
-      {commit.data && commit.data.actions.length > 0 && (
+          was tried and did not work is what you need when a scene will not certify.
+          Support changes are also reported: they happen before repair when a drag's
+          stale support parent is re-derived from its new position. */}
+      {commit.data &&
+        (commit.data.support_changes.length > 0 || commit.data.actions.length > 0) && (
         <div className="note">
+          {commit.data.support_changes.map((change) => (
+            <div key={`support:${change.object_id}`}>
+              ↳ {supportChangeMessage(change, displayNames)}
+            </div>
+          ))}
           {commit.data.actions.map((action, index) => (
             <div key={index}>
               {action.improved ? "✓" : "✗"} {action.kind.replace(/_/g, " ")}{" "}
@@ -211,31 +250,51 @@ export function CertificatePanel({ envelope, physics }: Props) {
           ))}
         </div>
       )}
+      {commitPhysics.data && (
+        <div className="note">
+          ✓ paused physics pose committed and recertified
+          {commitPhysics.data.support_changes.map((change) => (
+            <div key={`physics-support:${change.object_id}`}>
+              ↳ {supportChangeMessage(change, displayNames)}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* The same MuJoCo the backend certifies with — `@mujoco/mujoco` 3.11.0
           against the server's 3.11.0, compiling the MJCF the server built. Off
           until asked: the 9.7 MB module should not be downloaded by someone who
           only wants to look, and the solved pose *is* the answer, so running
-          gravity unprompted would show the scene falling and hide it. Nothing here
-          writes to the scene — Reset asks the compiled pose again. */}
+          gravity unprompted would show the scene falling and hide it. Stepping is
+          non-destructive; only the explicit paused-pose commit writes it back. */}
       <div className="physics">
         <button
           type="button"
           className="physics-toggle"
-          disabled={physics.state === "loading"}
-          onClick={physics.state === "idle" ? physics.enable : physics.disable}
+          disabled={physics.state === "loading" || physics.state === "diverged"}
+          onClick={
+            physics.state === "idle"
+              ? physics.enable
+              : physics.state === "running"
+                ? physics.pause
+                : physics.state === "paused"
+                  ? physics.resume
+                  : physics.disable
+          }
         >
           {physics.state === "loading"
             ? "loading MuJoCo…"
             : physics.state === "running"
-              ? "◼ stop physics"
-              : physics.state === "diverged"
-                ? "◼ stopped — unstable"
-                : "▶ run physics"}
+              ? "Ⅱ pause physics"
+              : physics.state === "paused"
+                ? "▶ resume physics"
+                : physics.state === "diverged"
+                  ? "◼ stopped — unstable"
+                  : "▶ run physics"}
         </button>
         {physics.state === "diverged" && (
-          <button type="button" className="physics-reset" onClick={physics.reset}>
-            ↺ restart
+          <button type="button" className="physics-reset" onClick={physics.disable}>
+            ↩ restore stored pose
           </button>
         )}
         {physics.state === "running" && (
@@ -243,8 +302,40 @@ export function CertificatePanel({ envelope, physics }: Props) {
             <button type="button" className="physics-reset" onClick={physics.reset}>
               ↺ reset
             </button>
+            <button type="button" className="physics-reset" onClick={physics.disable}>
+              ↩ stop &amp; restore
+            </button>
             <span className="note">t = {physics.time.toFixed(2)} s</span>
           </>
+        )}
+        {physics.state === "paused" && (
+          <>
+            <button
+              type="button"
+              className="physics-commit"
+              disabled={
+                commitPhysics.isPending || dirty || pausedPoseEdits.length === 0
+              }
+              onClick={() => commitPhysics.mutate()}
+            >
+              {commitPhysics.isPending
+                ? "committing…"
+                : `commit paused pose (${pausedPoseEdits.length})`}
+            </button>
+            <button type="button" className="physics-reset" onClick={physics.reset}>
+              ↺ reset
+            </button>
+            <button type="button" className="physics-reset" onClick={physics.disable}>
+              ↩ restore stored pose
+            </button>
+            <span className="note">paused at t = {physics.time.toFixed(2)} s</span>
+          </>
+        )}
+        {physics.state === "paused" && dirty && (
+          <p className="note">commit or discard manual edits before saving physics</p>
+        )}
+        {commitPhysics.error && (
+          <p className="note note--error">{String(commitPhysics.error)}</p>
         )}
         {physics.error && <p className="reasons-degraded">{physics.error}</p>}
       </div>

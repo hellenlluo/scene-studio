@@ -46,6 +46,8 @@ from app.geometry import world_aabb
 from app.pipeline import penetration, support
 from app.pipeline.base import PipelineContext
 from app.schemas import (
+    AxisStatus,
+    Certificate,
     DepthObservation,
     DepthResult,
     Provenance,
@@ -58,7 +60,7 @@ from app.schemas import (
     SolveWeights,
 )
 
-__all__ = ["SolveResult", "run"]
+__all__ = ["SolveResult", "finalise_diagnostics", "run"]
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +87,29 @@ ROUND_TOLERANCE_M = 2e-3
 # measurement of where the object belongs — a mug knocked off a table lands on the
 # floor, and the floor is not the answer.
 PHYSICS_WEIGHT = 0.5
+
+
+def finalise_diagnostics(
+    diagnostics: SolveDiagnostics, certificate: Certificate
+) -> SolveDiagnostics:
+    """Make the settling fields describe the final, possibly repaired graph.
+
+    Certification already settles that graph in MuJoCo. Reusing its displacement
+    measurements avoids a duplicate simulation and, more importantly, prevents the
+    stored diagnostics from describing the pre-repair pose while the graph and
+    certificate describe the post-repair pose. Optimiser convergence remains the
+    solve's own result; a repair cannot retroactively make an unconverged solve a
+    fixed point.
+    """
+    if certificate.stability_status is AxisStatus.NOT_RUN:
+        return diagnostics
+    max_drift = max((check.com_displacement_m for check in certificate.stability), default=0.0)
+    return diagnostics.model_copy(
+        update={
+            "settled": max_drift < ROUND_TOLERANCE_M,
+            "max_settle_drift_m": max_drift,
+        }
+    )
 
 
 def _pack(objects: list[SceneObject]) -> np.ndarray:

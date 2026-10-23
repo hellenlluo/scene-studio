@@ -413,6 +413,25 @@ class SupportHeights:
             return None
         return float(obj.position_m[2] + obj.scale * offset)
 
+    def underside_points_m(self, obj: SceneObject, band_m: float) -> np.ndarray:
+        """World-space samples on the object's complete potential contact base.
+
+        ``contact`` returns only the samples that have another surface beneath them.
+        Balance diagnosis also needs the samples that *would* touch an unlimited flat
+        support: without both sets, a clock hanging off a cabinet and a clock whose
+        COM lies outside its own feet are indistinguishable.
+
+        The band is the contact tolerance rather than ``burial_slack_m``.  Translation
+        cannot change a sample's height, so a point ten centimetres above the lowest
+        foot is not a potential contact merely because the burial detector keeps it.
+        """
+        points = self._undersides.get(obj.object_id)
+        if points is None or not len(points):
+            return np.empty((0, 3))
+        world = np.asarray(obj.position_m, dtype=float) + obj.scale * points
+        lowest = float(np.min(world[:, 2]))
+        return world[world[:, 2] <= lowest + band_m]
+
     def under(
         self,
         parent: SceneObject,
@@ -673,7 +692,13 @@ class SupportHeights:
         return best
 
     def nearest_support_xy(
-        self, parent: SceneObject, low: np.ndarray, high: np.ndarray, base: float, slack: float
+        self,
+        parent: SceneObject,
+        low: np.ndarray,
+        high: np.ndarray,
+        base: float,
+        slack: float,
+        point_xy: np.ndarray | None = None,
     ):
         """World XY of the nearest point on `parent` that could hold this child up.
 
@@ -685,7 +710,11 @@ class SupportHeights:
         grid = self._grids.get(parent.object_id)
         if grid is None:
             return None
-        centre_xy = (np.asarray(low[:2]) + np.asarray(high[:2])) / 2.0
+        centre_xy = (
+            np.asarray(point_xy, dtype=float)
+            if point_xy is not None
+            else (np.asarray(low[:2]) + np.asarray(high[:2])) / 2.0
+        )
         position = np.asarray(parent.position_m, dtype=float)
         oriented = (centre_xy - position[:2]) / parent.scale
         oriented_base = (base - position[2]) / parent.scale

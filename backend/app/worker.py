@@ -14,7 +14,7 @@ from pathlib import Path
 from app.db import SessionLocal
 from app.models import Job, JobState, Scene
 from app.pipeline.orchestrator import run_pipeline
-from app.schemas import StageName
+from app.schemas import SceneOutcome, StageName
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +58,12 @@ def run_job(job_id: str) -> None:
                 spec=spec.model_dump(mode="json"),
             )
         )
-        job.state = JobState.SUCCEEDED
+        # The computation completed, so retain its scene for inspection. That does
+        # not make an unconverged, unsettled, or uncertified reconstruction a
+        # successful physical result.
+        job.state = (
+            JobState.SUCCEEDED if spec.outcome is SceneOutcome.READY else JobState.NEEDS_ATTENTION
+        )
         job.current_stage = None
         job.finished_at = datetime.now(UTC)
         db.commit()

@@ -219,3 +219,5 @@ __marimo__/
 
 # SceneStudio artifacts: uploads, meshes, cached stage outputs, SQLite db
 storage/
+
+MUJOCO_LOG.TXT

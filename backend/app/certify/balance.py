@@ -29,7 +29,7 @@ from scipy.spatial import ConvexHull, QhullError
 
 from app.geometry import world_aabb, world_center_of_mass
 from app.pipeline.support import SupportHeights
-from app.schemas import BalanceCheck, SceneGraph, SceneObject
+from app.schemas import BalanceCheck, BalanceFailureKind, SceneGraph, SceneObject
 
 __all__ = ["run"]
 
@@ -81,6 +81,20 @@ def _box_contact_points(graph: SceneGraph, obj: SceneObject, tolerance_m: float)
     )
 
 
+def _box_base_points(obj: SceneObject) -> np.ndarray:
+    """Complete OBB footprint for the same degraded tier used by contact evidence."""
+    low, high = world_aabb(obj)
+    return np.array(
+        [
+            [low[0], low[1], low[2]],
+            [low[0], high[1], low[2]],
+            [high[0], low[1], low[2]],
+            [high[0], high[1], low[2]],
+        ],
+        dtype=float,
+    )
+
+
 def _contact_points(
     graph: SceneGraph,
     obj: SceneObject,
@@ -98,6 +112,25 @@ def _contact_points(
         source = "obb_fallback"
     points = np.empty((0, 3)) if not len(points) else np.unique(points.reshape(-1, 3), axis=0)
     return _ContactEvidence(points, source, contact.resting_on)
+
+
+def _base_points(
+    obj: SceneObject,
+    supports: SupportHeights,
+    tolerance_m: float,
+) -> np.ndarray:
+    """Every point that could support this rigid pose on an unlimited flat plane."""
+    underside = getattr(supports, "underside_points_m", None)
+    if underside is None:
+        # The public balance boundary is intentionally easy to benchmark with a
+        # controlled support provider. Older/minimal providers expose exact contacts
+        # and ``base_of`` but not collision undersides; the OBB is the declared
+        # degraded tier for that missing evidence.
+        return _box_base_points(obj)
+    points = underside(obj, tolerance_m)
+    if len(points) < 3 and supports.base_of(obj) is None:
+        points = _box_base_points(obj)
+    return np.empty((0, 3)) if not len(points) else np.unique(points.reshape(-1, 3), axis=0)
 
 
 def _hull(points: np.ndarray) -> tuple[np.ndarray, ConvexHull] | None:
@@ -136,6 +169,20 @@ def _support_margin(hull: ConvexHull, centre_xy: np.ndarray) -> float:
     return float(np.min(distances))
 
 
+def _evaluate(points: np.ndarray, centre_xy: np.ndarray) -> tuple[np.ndarray, bool, float, bool]:
+    """Hull, force feasibility, margin, and whether a non-degenerate hull existed."""
+    hull_data = _hull(points)
+    if hull_data is None:
+        return points, False, 0.0, False
+    hull_points, hull = hull_data
+    return (
+        hull_points,
+        _force_feasible(hull_points, centre_xy),
+        _support_margin(hull, centre_xy),
+        True,
+    )
+
+
 def run(
     graph: SceneGraph,
     supports: SupportHeights,
@@ -147,15 +194,31 @@ def run(
         centre_xy = centre_m[:2]
         evidence = _contact_points(graph, obj, supports, contact_tolerance_m)
         points = evidence.points_m[:, :2]
-        hull_data = _hull(points)
-        if hull_data is None:
-            feasible = False
-            margin = 0.0
-            hull_points = points
+        hull_points, feasible, margin, contact_hull_exists = _evaluate(points, centre_xy)
+
+        base_evidence = _base_points(obj, supports, contact_tolerance_m)
+        base_points = base_evidence[:, :2]
+        base_hull, base_feasible, base_margin, base_hull_exists = _evaluate(base_points, centre_xy)
+
+        passed = feasible and margin >= -_NUMERICAL_MARGIN_M
+        if passed:
+            failure_kind = BalanceFailureKind.NONE
+        elif not base_hull_exists:
+            failure_kind = BalanceFailureKind.INSUFFICIENT_GEOMETRY
+        elif not base_feasible or base_margin < -_NUMERICAL_MARGIN_M:
+            # Even an unlimited flat support cannot put a resultant normal force
+            # through this COM. Moving the rigid body sideways moves both quantities
+            # together and therefore cannot change this result.
+            failure_kind = BalanceFailureKind.INTRINSIC_IMBALANCE
+        elif not contact_hull_exists:
+            # The object's own base is sound but it is not presently resting on a
+            # measurable area. The gap/declared-parent checks decide whether the fix
+            # is a vertical snap or a lateral return to its support.
+            failure_kind = BalanceFailureKind.NO_CONTACT
         else:
-            hull_points, hull = hull_data
-            feasible = _force_feasible(hull_points, centre_xy)
-            margin = _support_margin(hull, centre_xy)
+            failure_kind = BalanceFailureKind.PARTIAL_SUPPORT
+
+        coverage = min(1.0, len(points) / len(base_points)) if len(base_points) else 0.0
 
         checks.append(
             BalanceCheck(
@@ -167,11 +230,16 @@ def run(
                     tuple(float(value) for value in point) for point in evidence.points_m
                 ],
                 support_polygon_xy_m=[(float(point[0]), float(point[1])) for point in hull_points],
+                full_base_polygon_xy_m=[(float(point[0]), float(point[1])) for point in base_hull],
                 evidence_source=evidence.source,
                 resting_on=evidence.resting_on,
                 contact_force_feasible=feasible,
                 support_margin_m=margin,
-                passed=feasible and margin >= -_NUMERICAL_MARGIN_M,
+                full_base_margin_m=base_margin,
+                full_base_force_feasible=base_feasible,
+                support_coverage_ratio=coverage,
+                failure_kind=failure_kind,
+                passed=passed,
             )
         )
     return checks

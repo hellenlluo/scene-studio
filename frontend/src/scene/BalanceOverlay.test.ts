@@ -14,6 +14,10 @@ function check(objectId: string, passed: boolean): BalanceCheck {
     evidence_source: "collision_proxy",
     contact_force_feasible: passed,
     support_margin_m: passed ? 0.1 : -0.1,
+    full_base_margin_m: 0.1,
+    full_base_force_feasible: true,
+    support_coverage_ratio: 1,
+    failure_kind: passed ? "none" : "partial_support",
     passed,
   };
 }

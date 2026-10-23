@@ -47,6 +47,10 @@ function balanceCheck(
     evidence_source: 'collision_proxy',
     contact_force_feasible: true,
     support_margin_m: 0.05,
+    full_base_margin_m: 0.05,
+    full_base_force_feasible: true,
+    support_coverage_ratio: 1,
+    failure_kind: 'none',
     passed: true,
     ...overrides,
   }
@@ -179,6 +183,35 @@ describe('reasonsFor', () => {
       balance: [balanceCheck('lamp', { contact_count: 1, passed: false })],
     })
     expect(reasonsFor('lamp', cert)[0]).toContain('only 1 support contact')
+  })
+
+  it('distinguishes partial support from intrinsic imbalance', () => {
+    const partial = certificate({
+      balance: [
+        balanceCheck('clock', {
+          failure_kind: 'partial_support',
+          support_margin_m: -0.017,
+          passed: false,
+        }),
+      ],
+    })
+    const intrinsic = certificate({
+      balance: [
+        balanceCheck('clock', {
+          failure_kind: 'intrinsic_imbalance',
+          full_base_margin_m: -0.012,
+          full_base_force_feasible: false,
+          passed: false,
+        }),
+      ],
+    })
+
+    expect(reasonsFor('clock', partial)).toEqual([
+      'part of its base is unsupported; centre of mass lies 17 mm outside the supported region',
+    ])
+    expect(reasonsFor('clock', intrinsic)).toEqual([
+      'centre of mass lies 12 mm outside its complete base; sliding cannot fix it',
+    ])
   })
 
   it('does not report a gap that is inside the tolerance', () => {

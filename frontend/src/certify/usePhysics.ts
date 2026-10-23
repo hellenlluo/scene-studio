@@ -18,17 +18,19 @@ import PhysicsWorker from './physics.worker?worker'
 /** Simulated seconds advanced per animation frame. */
 const STEP_SECONDS = 1 / 60
 
-export type PhysicsState = 'idle' | 'loading' | 'running' | 'diverged' | 'error'
+export type PhysicsState = 'idle' | 'loading' | 'running' | 'paused' | 'diverged' | 'error'
 
 export interface Physics {
   state: PhysicsState
-  /** Live poses by object id while running; empty when idle. */
+  /** Live poses by object id while running or paused; empty when idle. */
   poses: Map<string, Pose>
   /** Simulated seconds since the scene was compiled. */
   time: number
   error: string | null
   enable: () => void
   disable: () => void
+  pause: () => void
+  resume: () => void
   reset: () => void
 }
 
@@ -145,7 +147,27 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
     setState('idle')
     setPoses(new Map())
     setTime(0)
+    setError(null)
   }, [teardown])
+
+  const pause = useCallback(() => {
+    if (!worker.current || state !== 'running') return
+    if (frame.current !== null) cancelAnimationFrame(frame.current)
+    frame.current = null
+    stepping.current = false
+    worker.current.postMessage({ type: 'pause' } satisfies Command)
+    // Keep the worker, time and last reported poses: this is the state the user may
+    // choose to commit, not a stop that throws the simulation away.
+    setState('paused')
+  }, [state])
+
+  const resume = useCallback(() => {
+    if (!worker.current || state !== 'paused') return
+    setState('running')
+    stepping.current = true
+    worker.current.postMessage({ type: 'resume' } satisfies Command)
+    worker.current.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
+  }, [state])
 
   const reset = useCallback(() => {
     // Back to the compiled pose — which is the server's, since nothing here ever
@@ -162,7 +184,7 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
   }, [])
 
   return useMemo(
-    () => ({ state, poses, time, error, enable, disable, reset }),
-    [state, poses, time, error, enable, disable, reset],
+    () => ({ state, poses, time, error, enable, disable, pause, resume, reset }),
+    [state, poses, time, error, enable, disable, pause, resume, reset],
   )
 }

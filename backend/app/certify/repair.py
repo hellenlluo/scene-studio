@@ -9,9 +9,13 @@ The policy here is **cheapest and least destructive first**:
 
 1. `SNAP_TO_SUPPORT` — close the gap to whatever the object rests on. Pure
    translation along one axis, and it fixes both floating and buried objects.
-2. `RESOLVE_PENETRATION` — push overlapping bodies apart along their shallowest
+2. `RECENTER_ON_SUPPORT` — when an object is dynamically unstable at the edge of
+   its support, move it only far enough to put its complete base robustly on top.
+3. `INFER_BALANCED_COM` — when even the complete base cannot balance the object,
+   infer the smallest bounded COM correction consistent with the observed rest pose.
+4. `RESOLVE_PENETRATION` — push overlapping bodies apart along their shallowest
    axis of overlap.
-3. `RESCALE` — only where the object's scale deviation was *already* out of
+5. `RESCALE` — only where the object's scale deviation was *already* out of
    tolerance.
 
 Rescaling is last on purpose and should stay reluctant: scale is the variable the
@@ -43,10 +47,11 @@ import logging
 import numpy as np
 
 from app.config import Settings
-from app.geometry import world_aabb
+from app.geometry import quat_to_matrix, world_aabb, world_center_of_mass
 from app.pipeline import support
 from app.pipeline.base import PipelineContext
 from app.schemas import (
+    BalanceFailureKind,
     Certificate,
     Provenance,
     RepairAction,
@@ -123,9 +128,7 @@ def _violation(cert: Certificate, settings: Settings, ids: set[str] | None = Non
         # term makes a degenerate/no-contact patch visible; the continuous term
         # rewards moving an outside COM toward the feasible wrench region.
         total += 0.0 if check.contact_force_feasible else 1.0
-        total += max(
-            0.0, -check.support_margin_m / max(settings.max_support_gap_m, 1e-9)
-        )
+        total += max(0.0, -check.support_margin_m / max(settings.max_support_gap_m, 1e-9))
     for check in cert.stability:
         if not counted(check.object_id):
             continue
@@ -175,13 +178,31 @@ def _apply(graph: SceneGraph, action: RepairAction) -> SceneGraph:
         # provenance changes on a position nobody touched.
         obj.supported_by = action.new_parent_id
 
+    if any(action.delta_com_m):
+        # All part COMs move by the same object-frame vector, so their mass-weighted
+        # aggregate moves by exactly that vector while the visible/collision geometry
+        # remains fixed. The action is only proposed when every part has an explicit
+        # inertial; otherwise MuJoCo would add unrecorded inferred mass to the result.
+        for part in obj.parts:
+            if part.inertial is None:
+                continue
+            part.inertial = part.inertial.model_copy(
+                update={
+                    "com_m": tuple(
+                        float(a + b)
+                        for a, b in zip(part.inertial.com_m, action.delta_com_m, strict=True)
+                    )
+                }
+            )
+        obj.provenance["com_m"] = Provenance.BALANCE_INFERRED
+
     if action.delta_scale != 1.0:
         obj.scale *= action.delta_scale
         obj.provenance["scale"] = Provenance.DERIVED
     return trial
 
 
-# --- the three strategies -----------------------------------------------------
+# --- repair strategies -------------------------------------------------------
 
 
 def _snap_to_support(graph: SceneGraph, cert: Certificate, settings: Settings):
@@ -364,7 +385,7 @@ def _rescale_toward_prior(graph: SceneGraph, cert: Certificate, settings: Settin
 
 
 def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings):
-    """Move an object sideways until its weight is over what it is standing on.
+    """Move an object sideways only when support coverage is the problem.
 
     The lateral counterpart of `_snap_to_support`, and the strategy whose absence
     left most of a scene unrepairable: measured on `room2.png`, four of five failing
@@ -372,13 +393,19 @@ def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings
     single action for the whole scene, because snapping moves only in z and pushing
     penetrations apart only applies to objects that overlap.
 
-    The correction is the shortest vector from the footprint centre to the polygon
-    of points the object is actually touching — the same polygon `certify.scale`
-    tests against, so this closes exactly the criterion that failed rather than an
-    approximation of it. Bounded by `max_snap_m` for the reason snapping is: past
-    that, an object is not slightly misplaced, it is somewhere else.
+    Static balance now distinguishes two cases before this strategy runs. If the COM
+    lies inside the object's *complete* base but outside the part currently supported,
+    the parent is clipping the base and translation can help. If the COM lies outside
+    the complete base, translation is mathematically useless: it moves the COM and the
+    feet by the same vector. Those intrinsic failures are left visible for an
+    orientation/COM/proxy correction instead of receiving a repeated fake slide.
+
+    The correction targets the measured COM, not the bounding-box centre. It is moved
+    just inside the current contact hull rather than exactly onto its boundary, so the
+    new pose has a small robustness margin instead of a numerical pass at zero.
     """
     heights = support.build(graph, settings)
+    balance_by_id = {check.object_id: check for check in cert.balance}
     for check in cert.scale:
         if check.base_inside_parent:
             continue
@@ -387,12 +414,33 @@ def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings
             # Nothing to be over. An object on the floor is always supported.
             continue
 
+        balance_check = balance_by_id.get(check.object_id)
+        if (
+            balance_check is not None
+            and balance_check.failure_kind is BalanceFailureKind.INTRINSIC_IMBALANCE
+        ):
+            log.info(
+                "%s has an intrinsic COM/base imbalance; a rigid slide cannot repair it",
+                check.object_id,
+            )
+            continue
+
         contact = heights.contact(
             obj, graph.objects, graph.floor_height_m, settings.max_support_gap_m
         )
         low, high = world_aabb(obj)
-        centre = (low[:2] + high[:2]) / 2.0
+        centre = world_center_of_mass(obj)[:2]
         target = _nearest_in_hull(centre, contact.contacts_xy)
+        if target is not None and np.linalg.norm(target - centre) > 1e-9:
+            # Move a little beyond the closest boundary toward the contact centroid.
+            # A boundary-only correction has zero support margin and is brittle to
+            # both contact-grid resolution and floating-point noise.
+            inward = np.mean(contact.contacts_xy, axis=0) - target
+            inward_distance = float(np.linalg.norm(inward))
+            if inward_distance > 1e-9:
+                target = target + inward / inward_distance * min(
+                    settings.max_support_gap_m, inward_distance
+                )
         if target is None:
             # Touching nothing, so there is no contact hull to aim at. This used to
             # defer to `_snap_to_support` as "a gap failure, not a lateral one",
@@ -419,6 +467,7 @@ def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings
                     high,
                     float(low[2]) if base is None else base,
                     settings.support_burial_slack_m,
+                    point_xy=centre,
                 )
             )
         if target is None:
@@ -432,8 +481,189 @@ def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings
         yield RepairAction(
             kind=RepairKind.SLIDE_ONTO_SUPPORT,
             target_id=check.object_id,
-            axis_repaired="scale",
+            axis_repaired=(
+                "balance"
+                if balance_check is not None
+                and balance_check.failure_kind is BalanceFailureKind.PARTIAL_SUPPORT
+                else "scale"
+            ),
             delta_position_m=(float(delta[0]), float(delta[1]), 0.0),
+            magnitude=distance,
+        )
+
+
+def _recenter_fragile_support(graph: SceneGraph, cert: Certificate, settings: Settings):
+    """Move a marginally supported object farther onto its declared parent.
+
+    This is deliberately separate from `_slide_onto_support`. That strategy repairs
+    an already failed containment/balance check. This one handles the plant case:
+    static balance passes by a fraction of a millimetre, yet only part of the base is
+    supported and MuJoCo shows the pose falling. The vector from the complete-base
+    centroid to the contact-patch centroid identifies the supported (inward) side.
+    Projecting both hulls onto that vector estimates the overhang, then adds a small
+    robustness margin. Full re-certification is still the acceptance test.
+    """
+    stability_by_id = {check.object_id: check for check in cert.stability}
+    for check in cert.balance:
+        obj = graph.get(check.object_id)
+        stability_check = stability_by_id.get(check.object_id)
+        if (
+            obj is None
+            or obj.supported_by is None
+            or stability_check is None
+            or stability_check.passed
+            or stability_check.initial_penetration_m > settings.max_penetration_m
+            or not check.passed
+            or check.failure_kind is not BalanceFailureKind.NONE
+            or not check.full_base_force_feasible
+        ):
+            continue
+
+        # A low margin alone can come from the COM being near the object's own edge.
+        # A rigid slide cannot improve that. Require evidence that the parent is
+        # clipping the base: incomplete coverage or a smaller actual-support margin
+        # than the complete-base margin.
+        clipped = (
+            check.support_coverage_ratio < settings.repair_min_support_coverage
+            or check.full_base_margin_m > check.support_margin_m + settings.repair_balance_margin_m
+        )
+        already_robust = (
+            check.support_coverage_ratio >= settings.repair_min_support_coverage
+            and check.support_margin_m >= settings.repair_balance_margin_m
+        )
+        if not clipped or already_robust:
+            continue
+
+        base = np.asarray(check.full_base_polygon_xy_m, dtype=float)
+        contact = np.asarray(check.support_polygon_xy_m, dtype=float)
+        if base.shape[0] < 3 or contact.shape[0] < 3:
+            continue
+
+        direction = np.mean(contact, axis=0) - np.mean(base, axis=0)
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1e-9:
+            # Symmetric contact evidence gives no safe lateral direction. Guessing
+            # one would be worse than leaving the dynamic failure visible.
+            continue
+        direction /= norm
+
+        # The unsupported side is opposite `direction`. Moving by the gap between
+        # the two minimum projections brings the complete base to the measured
+        # support boundary; the added margin keeps it away from that boundary.
+        overhang = max(
+            0.0,
+            float(np.min(contact @ direction) - np.min(base @ direction)),
+        )
+        distance = max(
+            overhang + settings.repair_balance_margin_m,
+            settings.repair_balance_margin_m - check.support_margin_m,
+        )
+        if distance < 1e-6 or distance > settings.max_snap_m:
+            continue
+
+        delta = direction * distance
+        yield RepairAction(
+            kind=RepairKind.RECENTER_ON_SUPPORT,
+            target_id=check.object_id,
+            axis_repaired="stability",
+            delta_position_m=(float(delta[0]), float(delta[1]), 0.0),
+            magnitude=distance,
+        )
+
+
+def _point_with_hull_margin(
+    point: np.ndarray, hull_points: np.ndarray, requested_margin_m: float
+) -> np.ndarray | None:
+    """Closest point inside a convex hull with a positive boundary margin."""
+    if len(hull_points) < 3:
+        return None
+    try:
+        from scipy.optimize import LinearConstraint, minimize
+        from scipy.spatial import ConvexHull
+
+        hull = ConvexHull(hull_points)
+    except Exception:
+        return None
+
+    normals = hull.equations[:, :2]
+    offsets = hull.equations[:, 2]
+    lengths = np.linalg.norm(normals, axis=1)
+    if np.any(lengths <= 0.0):
+        return None
+    normals = normals / lengths[:, None]
+    offsets = offsets / lengths
+
+    vertices = hull_points[hull.vertices]
+    interior = np.mean(vertices, axis=0)
+    available = float(np.min(-(normals @ interior + offsets)))
+    if available <= 0.0:
+        return None
+    # Thin bases may not contain the configured margin. Half the centroid's own
+    # clearance is still a non-zero, numerically robust target.
+    margin = min(requested_margin_m, available * 0.5)
+    upper = -offsets - margin
+    if np.all(normals @ point <= upper + 1e-9):
+        return point
+
+    result = minimize(
+        lambda candidate: float(np.sum((candidate - point) ** 2)),
+        x0=interior,
+        method="SLSQP",
+        constraints=[LinearConstraint(normals, -np.inf, upper)],
+        options={"ftol": 1e-12, "maxiter": 100},
+    )
+    if not result.success or not np.all(normals @ result.x <= upper + 1e-7):
+        return None
+    return np.asarray(result.x, dtype=float)
+
+
+def _infer_balanced_com(graph: SceneGraph, cert: Certificate, settings: Settings):
+    """Infer the smallest bounded COM shift that makes the observed pose balance.
+
+    This owns the clock case. Translating the clock cannot help because its COM is
+    outside its *own complete base*. But the photograph says the clock was at rest,
+    so either the hidden mass distribution, collision base, or orientation is wrong.
+    This operator tests the least visible hypothesis: move the inferred COM to the
+    nearest robustly feasible point, cap the correction, record it as
+    `balance_inferred`, and keep it only if full re-certification lowers the target's
+    violation score.
+    """
+    for check in cert.balance:
+        if check.failure_kind is not BalanceFailureKind.INTRINSIC_IMBALANCE:
+            continue
+        obj = graph.get(check.object_id)
+        if (
+            obj is None
+            or obj.is_pinned("com_m")
+            or not obj.parts
+            or any(part.inertial is None or part.inertial.mass_kg <= 0.0 for part in obj.parts)
+        ):
+            continue
+
+        hull = np.asarray(check.full_base_polygon_xy_m, dtype=float)
+        current_world = world_center_of_mass(obj)
+        target_xy = _point_with_hull_margin(
+            current_world[:2], hull, settings.repair_balance_margin_m
+        )
+        if target_xy is None:
+            continue
+
+        world_delta = np.array(
+            [target_xy[0] - current_world[0], target_xy[1] - current_world[1], 0.0],
+            dtype=float,
+        )
+        distance = float(np.linalg.norm(world_delta))
+        if distance < 1e-6 or distance > settings.max_com_inference_m:
+            continue
+
+        # Inertial COMs are stored in the object/part frame. Every part receives the
+        # same object-frame delta, producing exactly `world_delta` in the aggregate.
+        local_delta = quat_to_matrix(obj.orientation).T @ world_delta
+        yield RepairAction(
+            kind=RepairKind.INFER_BALANCED_COM,
+            target_id=check.object_id,
+            axis_repaired="balance",
+            delta_com_m=tuple(float(value) for value in local_delta),
             magnitude=distance,
         )
 
@@ -509,6 +739,8 @@ def _reparent(graph: SceneGraph, cert: Certificate, settings: Settings):
 _STRATEGIES = (
     _snap_to_support,
     _slide_onto_support,
+    _recenter_fragile_support,
+    _infer_balanced_com,
     _reparent,
     _resolve_penetration,
     _rescale_toward_prior,

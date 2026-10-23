@@ -51,6 +51,29 @@ def test_com_outside_contact_patch_is_infeasible(ctx):
     assert not checks["mug"].passed
     assert not checks["mug"].contact_force_feasible
     assert checks["mug"].support_margin_m == pytest.approx(-0.015)
+    assert checks["mug"].failure_kind == "partial_support"
+    assert checks["mug"].full_base_force_feasible
+    assert checks["mug"].full_base_margin_m == pytest.approx(0.045)
+    assert 0.0 < checks["mug"].support_coverage_ratio < 1.0
+
+
+def test_com_outside_complete_base_is_intrinsic_not_partial(ctx):
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    inertial = mug.root_part.inertial
+    assert inertial is not None
+    mug.root_part.inertial = inertial.model_copy(update={"com_m": (0.07, 0.0, 0.0)})
+
+    checks = {check.object_id: check for check in _run(ctx, graph)}
+    check = checks["mug"]
+
+    assert not check.passed
+    assert check.failure_kind == "intrinsic_imbalance"
+    assert not check.full_base_force_feasible
+    assert check.full_base_margin_m == pytest.approx(-0.025)
+    # The cabinet/table is not clipping the base: all potential base samples are
+    # supported. Moving the rigid object sideways therefore cannot change the result.
+    assert check.support_coverage_ratio == pytest.approx(1.0)
 
 
 def test_mass_weighted_com_avoids_bounding_box_false_failure(ctx):

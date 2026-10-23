@@ -57,6 +57,7 @@ class Provenance(StrEnum):
 
     MODEL = "model"  # predicted by an upstream reconstruction model
     DERIVED = "derived"  # produced by the solver
+    BALANCE_INFERRED = "balance_inferred"  # hidden property constrained by static balance
     USER = "user"  # pinned by a user edit
     FALLBACK = "fallback"  # a degradation path produced this
 
@@ -690,7 +691,7 @@ class SolveWeights(BaseModel):
         "isolation, and dominated in practice.\n\n"
         "The second reason it was off, kept because the trade it describes is "
         "real:\n\n"
-        "Aimed at the parent\'s AABB it drove objects into concave parents, so it was "
+        "Aimed at the parent's AABB it drove objects into concave parents, so it was "
         "re-aimed at the nearest point with real surface under it once the height "
         "grid could answer that. Swept again on `room2.png` it still trades one axis "
         "for another, now by colliding the object with its neighbours on the way:\n\n"
@@ -700,19 +701,19 @@ class SolveWeights(BaseModel):
         "        40         2/17           105.4 mm         3169 mm\n\n"
         "It buys two objects their support and costs an order of magnitude of "
         "overlap. The pull is only as good as the query under it, and that query "
-        "still places its probes on the child\'s *bounding box* rather than on the "
-        "child\'s own contact geometry — measured on the side table, a pedestal whose "
+        "still places its probes on the child's *bounding box* rather than on the "
+        "child's own contact geometry — measured on the side table, a pedestal whose "
         "contact patch is 0.107 x 0.037 m inside a 0.56 x 0.58 m footprint, so 99% of "
         "what gets probed is the empty air under a round top. Fix the probe placement "
         "before believing another sweep of this weight.\n\n"
         "*Since resolved, and it did not rescue the term.* `SupportHeights.gap_to` "
-        "now probes the child\'s own underside points, so the pedestal case is "
+        "now probes the child's own underside points, so the pedestal case is "
         "measured correctly — and the third sweep above, run afterwards, is worse "
         "than this one. The probes were a real defect; they were not what was "
         "holding this weight down.\n\n"
         "The first reason it was off, kept because the trade it describes is real:\n\n"
-        "The target is the parent\'s AABB, and a bookshelf\'s AABB is mostly solid "
-        "shelf — so pulling a vase\'s centre \'inside\' it drives the vase into the "
+        "The target is the parent's AABB, and a bookshelf's AABB is mostly solid "
+        "shelf — so pulling a vase's centre 'inside' it drives the vase into the "
         "structure. Swept on `room2.png`, against the scene entering solve with no "
         "overlap at all:\n\n"
         "    weight   vase buried   not-over-support   settle drift\n"
@@ -724,7 +725,7 @@ class SolveWeights(BaseModel):
         "settling degrades at every step — the 34 mm burial is what MuJoCo ejects at "
         "15.9 m/s before diverging. The term itself is right and its unit tests hold "
         "on a flat support; what is wrong is the target. It should pull toward the "
-        "parent\'s *supporting surface*, not its bounding box, and today\'s "
+        "parent's *supporting surface*, not its bounding box, and today's "
         "`SupportHeights` cannot express that — a top-down heightfield keeps one "
         "height per column, so it cannot represent a shelf with anything under it. "
         "Turn this on once support is a surface rather than a heightfield.\n\n"
@@ -733,7 +734,7 @@ class SolveWeights(BaseModel):
         "`support` is tuned, and for a reason that does not apply there. Swept "
         "against depth wrong by 0.8 m, the residual offset goes 311 mm at 0, then "
         "10.8, 2.8, 0.7, 0.2 and 0.0 mm at 4, 8, 16, 30 and 60 — while the depth "
-        "term\'s own cost sits at 0.043 from 4 upward and never moves again. "
+        "term's own cost sits at 0.043 from 4 upward and never moves again. "
         "`base_inside_parent` is a boolean, so a term that leaves 0.7 mm outside "
         "has not fixed the check it exists to fix, and there is no repair strategy "
         "for containment to finish the job — `_snap_to_support` only translates in "
@@ -887,6 +888,21 @@ class InertialCheck(BaseModel):
     passed: bool
 
 
+class BalanceFailureKind(StrEnum):
+    """Why the photographed pose does not admit the measured support wrench.
+
+    The distinction is actionable.  A partially supported object can be translated
+    farther onto its parent; an intrinsically imbalanced object cannot, because a
+    rigid translation moves its centre of mass and its own feet together.
+    """
+
+    NONE = "none"
+    PARTIAL_SUPPORT = "partial_support"
+    INTRINSIC_IMBALANCE = "intrinsic_imbalance"
+    NO_CONTACT = "no_contact"
+    INSUFFICIENT_GEOMETRY = "insufficient_geometry"
+
+
 class BalanceCheck(BaseModel):
     """Whether the observed pose admits static equilibrium under gravity.
 
@@ -911,6 +927,12 @@ class BalanceCheck(BaseModel):
         default_factory=list,
         description="Counter-clockwise convex hull of the contact samples in world XY.",
     )
+    full_base_polygon_xy_m: list[tuple[float, float]] = Field(
+        default_factory=list,
+        description="Counter-clockwise hull of every lowest underside sample, before "
+        "clipping it to surfaces that are actually beneath the object. Comparing this "
+        "with support_polygon_xy_m distinguishes overhang from an intrinsically bad COM.",
+    )
     evidence_source: str = Field(
         default="unavailable",
         description="collision_proxy, obb_fallback, or unavailable for a legacy result.",
@@ -924,6 +946,23 @@ class BalanceCheck(BaseModel):
         description="Signed XY distance from COM to the contact hull boundary. "
         "Positive is inside, negative is outside, zero is marginal."
     )
+    full_base_margin_m: float = Field(
+        default=0.0,
+        description="Signed XY distance from COM to the object's complete base hull. "
+        "Negative means translating the rigid object cannot make it balance.",
+    )
+    full_base_force_feasible: bool = Field(
+        default=False,
+        description="Whether the complete base, on an unlimited flat support, could "
+        "balance this centre of mass.",
+    )
+    support_coverage_ratio: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of sampled base points that currently have support contact.",
+    )
+    failure_kind: BalanceFailureKind = BalanceFailureKind.INSUFFICIENT_GEOMETRY
     passed: bool
 
 
@@ -1082,6 +1121,8 @@ class RepairKind(StrEnum):
 
     SNAP_TO_SUPPORT = "snap_to_support"  # support_gap_m
     SLIDE_ONTO_SUPPORT = "slide_onto_support"  # base_inside_parent
+    RECENTER_ON_SUPPORT = "recenter_on_support"  # marginal coverage + dynamic instability
+    INFER_BALANCED_COM = "infer_balanced_com"  # intrinsic COM/base imbalance
     REPARENT = "reparent"  # touching_parent
     RESOLVE_PENETRATION = "resolve_penetration"  # initial_penetration_m
     RESCALE = "rescale"  # deviation_sigma
@@ -1099,6 +1140,12 @@ class RepairAction(BaseModel):
     axis_repaired: str
 
     delta_position_m: Vec3 = (0.0, 0.0, 0.0)
+    delta_com_m: Vec3 = Field(
+        default=(0.0, 0.0, 0.0),
+        description="For INFER_BALANCED_COM: object-frame shift applied to every "
+        "part COM. It is reported separately from position because the visible "
+        "object does not move; the inferred internal mass distribution does.",
+    )
     delta_scale: float = 1.0
     new_parent_id: str | None = Field(
         default=None,
@@ -1166,7 +1213,10 @@ class SceneEditRequest(BaseModel):
     objects: list[ObjectEdit] = Field(default_factory=list)
     anchors: list[ScaleAnchor] = Field(default_factory=list)
     resolve: bool = Field(
-        default=True, description="Re-run stage 6 with the edits pinned, then re-certify."
+        default=True,
+        description="Re-run stage 6 with the edits pinned, then re-certify. False "
+        "stores the submitted pose exactly (used for paused browser physics), while "
+        "still refreshing geometric support relationships and re-certifying it.",
     )
 
 
@@ -1192,6 +1242,19 @@ class ObjectUncertainty(BaseModel):
 # --- the thing the API returns ------------------------------------------------
 
 
+class SceneOutcome(StrEnum):
+    """Whether a completed pipeline run produced a scene ready for use.
+
+    This is deliberately separate from process success.  A run can execute every
+    stage and still finish with a non-converged optimiser, a pose that moves under
+    gravity, or a failed certificate.  Such a scene is retained for inspection and
+    editing, but it is a draft rather than a successful physical reconstruction.
+    """
+
+    READY = "ready"
+    NEEDS_ATTENTION = "needs_attention"
+
+
 class SceneSpec(BaseModel):
     scene_id: str
     image_path: str = Field(
@@ -1207,6 +1270,8 @@ class SceneSpec(BaseModel):
     weights: SolveWeights = Field(default_factory=SolveWeights)
     diagnostics: SolveDiagnostics = Field(default_factory=SolveDiagnostics)
     repairs_applied: list[RepairAction] = Field(default_factory=list)
+    outcome: SceneOutcome = SceneOutcome.NEEDS_ATTENTION
+    outcome_reasons: list[str] = Field(default_factory=list)
     removed_objects: list[ObjectVerification] = Field(
         default_factory=list,
         description="Objects the verification stage dropped as external or duplicated, "
@@ -1216,3 +1281,26 @@ class SceneSpec(BaseModel):
 
     exports: ExportResult = Field(default_factory=ExportResult)
     uncertainty: list[ObjectUncertainty] = Field(default_factory=list)
+
+    def refresh_outcome(self) -> None:
+        """Classify the current result from its convergence and certificate evidence."""
+        reasons: list[str] = []
+        if not self.diagnostics.converged:
+            reasons.append("solver_not_converged")
+        if not self.diagnostics.settled:
+            reasons.append("scene_not_settled")
+        if not self.certificate.passed:
+            reasons.append("certification_failed")
+        self.outcome_reasons = reasons
+        self.outcome = SceneOutcome.READY if not reasons else SceneOutcome.NEEDS_ATTENTION
+
+    @model_validator(mode="after")
+    def _derive_outcome(self) -> "SceneSpec":
+        """Classify stored evidence, including rows written before outcome existed.
+
+        Recomputing on validation means scenes written before these fields existed
+        immediately receive the honest status when loaded; no database migration is
+        needed because the scene specification is a JSON document.
+        """
+        self.refresh_outcome()
+        return self

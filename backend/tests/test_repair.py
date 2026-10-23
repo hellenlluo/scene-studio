@@ -434,6 +434,104 @@ def test_an_object_touching_nothing_is_still_slid_back_onto_its_support(ctx):
     assert after.base_inside_parent, "it is over the table again"
 
 
+def test_partial_support_gets_a_com_aware_slide(ctx):
+    graph = scenes.kitchen()
+    graph.get("mug").position_m = (0.61, 0.0, 0.80)
+    certificate = certify.run(ctx, graph)
+    balance = next(check for check in certificate.balance if check.object_id == "mug")
+    assert balance.failure_kind == "partial_support"
+
+    actions = list(repair._slide_onto_support(graph, certificate, ctx.settings))
+
+    assert len(actions) == 1
+    assert actions[0].target_id == "mug"
+    assert actions[0].axis_repaired == "balance"
+    assert actions[0].delta_position_m[0] < 0.0
+
+
+def test_intrinsic_imbalance_is_never_given_a_rigid_slide(ctx):
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    inertial = mug.root_part.inertial
+    assert inertial is not None
+    mug.root_part.inertial = inertial.model_copy(update={"com_m": (0.07, 0.0, 0.0)})
+    certificate = certify.run(ctx, graph)
+    balance = next(check for check in certificate.balance if check.object_id == "mug")
+    assert balance.failure_kind == "intrinsic_imbalance"
+
+    actions = list(repair._slide_onto_support(graph, certificate, ctx.settings))
+
+    assert actions == []
+
+
+def test_intrinsic_imbalance_is_repaired_by_a_bounded_inferred_com(ctx):
+    """The visible mug stays put; only the hidden mass estimate moves into its base."""
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    inertial = mug.root_part.inertial
+    assert inertial is not None
+    mug.root_part.inertial = inertial.model_copy(update={"com_m": (0.07, 0.0, 0.0)})
+    before_position = mug.position_m
+
+    result = _repair(ctx, graph)
+
+    actions = [a for a in _kept(result) if a.kind is RepairKind.INFER_BALANCED_COM]
+    assert len(actions) == 1
+    assert actions[0].magnitude <= ctx.settings.max_com_inference_m
+    repaired = result.graph.get("mug")
+    assert repaired.position_m == before_position
+    assert repaired.provenance["com_m"] is Provenance.BALANCE_INFERRED
+    balance = next(check for check in result.certificate.balance if check.object_id == "mug")
+    stability = next(check for check in result.certificate.stability if check.object_id == "mug")
+    assert balance.passed
+    assert balance.full_base_margin_m >= 0.0
+    assert stability.passed
+
+
+def test_implausibly_large_com_inference_is_left_unresolved(ctx):
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    inertial = mug.root_part.inertial
+    assert inertial is not None
+    mug.root_part.inertial = inertial.model_copy(update={"com_m": (0.30, 0.0, 0.0)})
+    certificate = certify.run(ctx, graph)
+
+    assert list(repair._infer_balanced_com(graph, certificate, ctx.settings)) == []
+
+
+def test_dynamic_edge_instability_recenters_toward_supported_base(ctx):
+    """A marginal static pass is not enough when settling shows the pose falling."""
+    graph = scenes.kitchen()
+    graph.get("mug").position_m = (0.58, 0.0, 0.8)  # clipped by the table's right edge
+    certificate = certify.run(ctx, graph)
+    balance = next(check for check in certificate.balance if check.object_id == "mug")
+    stability = next(check for check in certificate.stability if check.object_id == "mug")
+    assert balance.passed
+    assert balance.support_coverage_ratio < ctx.settings.repair_min_support_coverage
+
+    # A simple box remains upright at this margin, so inject the dynamic observation
+    # the reconstructed plant supplies while retaining the real contact evidence.
+    stability.passed = False
+    stability.com_displacement_m = 0.2
+    actions = list(repair._recenter_fragile_support(graph, certificate, ctx.settings))
+
+    assert len(actions) == 1
+    assert actions[0].kind is RepairKind.RECENTER_ON_SUPPORT
+    assert actions[0].target_id == "mug"
+    assert actions[0].delta_position_m[0] < 0.0
+    assert actions[0].magnitude <= ctx.settings.max_snap_m
+
+
+def test_partial_coverage_does_not_move_an_object_that_is_dynamically_stable(ctx):
+    graph = scenes.kitchen()
+    graph.get("mug").position_m = (0.58, 0.0, 0.8)
+    certificate = certify.run(ctx, graph)
+    balance = next(check for check in certificate.balance if check.object_id == "mug")
+    assert balance.support_coverage_ratio < ctx.settings.repair_min_support_coverage
+
+    assert list(repair._recenter_fragile_support(graph, certificate, ctx.settings)) == []
+
+
 # --- scoping to an edit -------------------------------------------------------
 
 

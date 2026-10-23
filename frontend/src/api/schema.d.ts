@@ -280,6 +280,14 @@ export interface components {
                 number
             ][];
             /**
+             * Full Base Polygon Xy M
+             * @description Counter-clockwise hull of every lowest underside sample, before clipping it to surfaces that are actually beneath the object. Comparing this with support_polygon_xy_m distinguishes overhang from an intrinsically bad COM.
+             */
+            full_base_polygon_xy_m?: [
+                number,
+                number
+            ][];
+            /**
              * Evidence Source
              * @description collision_proxy, obb_fallback, or unavailable for a legacy result.
              * @default unavailable
@@ -297,9 +305,39 @@ export interface components {
              * @description Signed XY distance from COM to the contact hull boundary. Positive is inside, negative is outside, zero is marginal.
              */
             support_margin_m: number;
+            /**
+             * Full Base Margin M
+             * @description Signed XY distance from COM to the object's complete base hull. Negative means translating the rigid object cannot make it balance.
+             * @default 0
+             */
+            full_base_margin_m: number;
+            /**
+             * Full Base Force Feasible
+             * @description Whether the complete base, on an unlimited flat support, could balance this centre of mass.
+             * @default false
+             */
+            full_base_force_feasible: boolean;
+            /**
+             * Support Coverage Ratio
+             * @description Fraction of sampled base points that currently have support contact.
+             * @default 0
+             */
+            support_coverage_ratio: number;
+            /** @default insufficient_geometry */
+            failure_kind: components["schemas"]["BalanceFailureKind"];
             /** Passed */
             passed: boolean;
         };
+        /**
+         * BalanceFailureKind
+         * @description Why the photographed pose does not admit the measured support wrench.
+         *
+         *     The distinction is actionable.  A partially supported object can be translated
+         *     farther onto its parent; an intrinsically imbalanced object cannot, because a
+         *     rigid translation moves its centre of mass and its own feet together.
+         * @enum {string}
+         */
+        BalanceFailureKind: "none" | "partial_support" | "intrinsic_imbalance" | "no_contact" | "insufficient_geometry";
         /** Body_create_job_api_jobs_post */
         Body_create_job_api_jobs_post: {
             /** Image */
@@ -637,7 +675,7 @@ export interface components {
          * JobState
          * @enum {string}
          */
-        JobState: "pending" | "running" | "succeeded" | "failed";
+        JobState: "pending" | "running" | "succeeded" | "needs_attention" | "failed";
         /** JobStatus */
         JobStatus: {
             /** Id */
@@ -872,7 +910,7 @@ export interface components {
          *     which variables are free.
          * @enum {string}
          */
-        Provenance: "model" | "derived" | "user" | "fallback";
+        Provenance: "model" | "derived" | "balance_inferred" | "user" | "fallback";
         /**
          * ProxyTier
          * @description Collision-geometry fidelity.
@@ -905,6 +943,20 @@ export interface components {
              *     ]
              */
             delta_position_m: [
+                number,
+                number,
+                number
+            ];
+            /**
+             * Delta Com M
+             * @description For INFER_BALANCED_COM: object-frame shift applied to every part COM. It is reported separately from position because the visible object does not move; the inferred internal mass distribution does.
+             * @default [
+             *       0,
+             *       0,
+             *       0
+             *     ]
+             */
+            delta_com_m: [
                 number,
                 number,
                 number
@@ -944,7 +996,7 @@ export interface components {
          *     pairing so a new criterion cannot land without one.
          * @enum {string}
          */
-        RepairKind: "snap_to_support" | "slide_onto_support" | "reparent" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
+        RepairKind: "snap_to_support" | "slide_onto_support" | "recenter_on_support" | "infer_balanced_com" | "reparent" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
         /** RepairResponse */
         RepairResponse: {
             scene: components["schemas"]["SceneEnvelope"];
@@ -1029,28 +1081,31 @@ export interface components {
             anchors?: components["schemas"]["ScaleAnchor"][];
             /**
              * Resolve
-             * @description Re-run stage 6 with the edits pinned, then re-certify.
+             * @description Re-run stage 6 with the edits pinned, then re-certify. False stores the submitted pose exactly (used for paused browser physics), while still refreshing geometric support relationships and re-certifying it.
              * @default true
              */
             resolve: boolean;
         };
         /**
          * SceneEditResponse
-         * @description The committed scene, plus what repairing it did.
+         * @description The committed scene, plus every structural correction made along the way.
          *
          *     The actions are not decoration. A commit now repairs as well as re-solves, and
          *     a repair that moved an object without saying so is the silent-change problem
          *     the endpoint used to avoid by not repairing at all. Reported here so the client
          *     can show what a drag actually cost — including the proposals that were tried
          *     and reverted, which `RepairAction.improved` distinguishes.
+         *
+         *     Support changes are separate because re-deriving a stale parent happens before
+         *     repair.  It is a consequence of the edit, not a repair proposal, but it is still
+         *     a graph change the user should be told about.
          */
         SceneEditResponse: {
             scene: components["schemas"]["SceneEnvelope"];
-            /**
-             * Actions
-             * @default []
-             */
+            /** Actions */
             actions: components["schemas"]["RepairAction"][];
+            /** Support Changes */
+            support_changes: components["schemas"]["SupportChange"][];
         };
         /**
          * SceneEnvelope
@@ -1179,6 +1234,17 @@ export interface components {
              */
             degradation_reason?: string | null;
         };
+        /**
+         * SceneOutcome
+         * @description Whether a completed pipeline run produced a scene ready for use.
+         *
+         *     This is deliberately separate from process success.  A run can execute every
+         *     stage and still finish with a non-converged optimiser, a pose that moves under
+         *     gravity, or a failed certificate.  Such a scene is retained for inspection and
+         *     editing, but it is a draft rather than a successful physical reconstruction.
+         * @enum {string}
+         */
+        SceneOutcome: "ready" | "needs_attention";
         /** SceneSpec */
         SceneSpec: {
             /** Scene Id */
@@ -1197,6 +1263,10 @@ export interface components {
             diagnostics?: components["schemas"]["SolveDiagnostics"];
             /** Repairs Applied */
             repairs_applied?: components["schemas"]["RepairAction"][];
+            /** @default needs_attention */
+            outcome: components["schemas"]["SceneOutcome"];
+            /** Outcome Reasons */
+            outcome_reasons?: string[];
             /**
              * Removed Objects
              * @description Objects the verification stage dropped as external or duplicated, with the reasoning — the auditable record of what reconstruction produced that this scene does not.
@@ -1226,6 +1296,9 @@ export interface components {
             object_count: number;
             /** Certified */
             certified: boolean;
+            outcome: components["schemas"]["SceneOutcome"];
+            /** Outcome Reasons */
+            outcome_reasons: string[];
             /** Axes */
             axes: {
                 [key: string]: components["schemas"]["AxisStatus"];
@@ -1404,6 +1477,22 @@ export interface components {
             penetration_against?: string | null;
             /** Passed */
             passed: boolean;
+        };
+        /**
+         * SupportChange
+         * @description A support edge changed while committing an edit.
+         *
+         *     ``None`` is the floor in both fields.  Returning both ends makes automatic
+         *     re-parenting visible to the user instead of leaving them to infer it from the
+         *     final object list.
+         */
+        SupportChange: {
+            /** Object Id */
+            object_id: string;
+            /** Previous Support Id */
+            previous_support_id: string | null;
+            /** New Support Id */
+            new_support_id: string | null;
         };
         /** ValidationError */
         ValidationError: {

@@ -99,7 +99,7 @@ def test_every_axis_carries_its_measurements(ctx):
 def test_certificate_identifies_what_ran(ctx):
     cert = certify.run(ctx, scenes.kitchen())
 
-    assert cert.certificate_version == "1.2"
+    assert cert.certificate_version == "1.3"
     assert cert.generated_at is not None and cert.generated_at.tzinfo is not None
     assert cert.simulator_name == "MuJoCo"
     assert cert.simulator_version

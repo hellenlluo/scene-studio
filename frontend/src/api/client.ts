@@ -46,8 +46,10 @@ export type InertialCheck = components['schemas']['InertialCheck']
 export type AxisStatus = components['schemas']['AxisStatus']
 export type RepairAction = components['schemas']['RepairAction']
 export type PhysicsBundle = components['schemas']['PhysicsBundle']
+export type PhysicsPreviewRequest = components['schemas']['PhysicsPreviewRequest']
 export type ObjectEdit = components['schemas']['ObjectEdit']
 export type SceneEditRequest = components['schemas']['SceneEditRequest']
+export type JobStatus = components['schemas']['JobStatus']
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -61,6 +63,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  createJob: (image: File) => {
+    const body = new FormData()
+    body.append('image', image)
+    // Do not set Content-Type manually: the browser supplies the multipart
+    // boundary, without which FastAPI cannot read the uploaded file.
+    return request<JobStatus>('/api/jobs', { method: 'POST', body })
+  },
+  getJob: (jobId: string) => request<JobStatus>(`/api/jobs/${jobId}`),
   listScenes: () => request<SceneSummary[]>('/api/scenes'),
   getScene: (sceneId: string) => request<SceneEnvelope>(`/api/scenes/${sceneId}`),
   repairScene: (sceneId: string) =>
@@ -69,6 +79,12 @@ export const api = {
   // cannot disagree with the scene on screen the way a cached `scene.xml` URL could.
   scenePhysics: (sceneId: string) =>
     request<PhysicsBundle>(`/api/scenes/${sceneId}/physics`),
+  previewScenePhysics: (sceneId: string, preview: PhysicsPreviewRequest) =>
+    request<PhysicsBundle>(`/api/scenes/${sceneId}/physics/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(preview),
+    }),
   // Commit: the server re-derives what each moved object rests on, re-solves,
   // certifies, and repairs — every step bounded to the objects the edit touched
   // and whatever rests on them. Nothing outside that set moves, which was the

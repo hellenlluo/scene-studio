@@ -67,6 +67,7 @@ export function SceneModel({
   const { scene } = useGLTF(url);
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
   const select = useSceneStore((s) => s.select);
+  const edits = useSceneStore((s) => s.edits);
 
   const failing = useMemo(() => failingObjectIds(certificate), [certificate]);
   // GLTFLoader strips `/` from node names, so the object id cannot be recovered
@@ -131,16 +132,19 @@ export function SceneModel({
   // Physics poses land straight on the object frames. Writing the group rather than
   // going through React state keeps a 60 Hz stream off the reconciler; the groups
   // are the same objects three.js is already drawing. A missing physics pose falls
-  // back to the stored graph pose. That fallback is important when physics is
-  // stopped: clearing the pose map alone would otherwise leave each mutable three.js
-  // group frozen at its final simulated transform.
+  // back to the pending edit and only then to the stored graph. That middle layer is
+  // what makes reset/stop restore an uncommitted draft instead of snapping back to
+  // the committed scene. Scale is not in a free-joint pose, so it always comes from
+  // the draft and is compiled into the preview MJCF separately.
   useLayoutEffect(() => {
     for (const object of graph.objects) {
       const group = groups.get(object.object_id);
       if (!group) continue;
       const pose = poses?.get(object.object_id);
-      const position = pose?.position ?? object.position_m;
-      const quaternion = pose?.quaternion ?? object.orientation;
+      const edit = edits.get(object.object_id);
+      const position = pose?.position ?? edit?.position_m ?? object.position_m;
+      const quaternion = pose?.quaternion ?? edit?.orientation ?? object.orientation;
+      const scale = edit?.scale ?? object.scale;
       group.position.set(...(position as [number, number, number]));
       group.quaternion.set(
         quaternion[1],
@@ -148,8 +152,9 @@ export function SceneModel({
         quaternion[3],
         quaternion[0],
       );
+      group.scale.setScalar(scale / object.scale);
     }
-  }, [poses, groups, graph]);
+  }, [poses, groups, graph, edits]);
 
   useEffect(() => {
     model.traverse((node) => {

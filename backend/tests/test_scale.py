@@ -168,6 +168,31 @@ def test_an_object_pushed_off_its_support_fails_containment():
     assert not check.passed
 
 
+def test_verified_side_contact_replaces_horizontal_containment():
+    """Only a caller with a feasible 3-D wrench may waive the XY condition.
+
+    The raw measurement stays false for auditability; ``contact_constrained`` says
+    why it is not a failure rather than rewriting what the footprint calculation saw.
+    """
+    graph = scenes.kitchen()
+    mug = graph.get("mug")
+    mug.position_m = (0.61, 0.0, mug.position_m[2])
+
+    check = _by_object(
+        scale.run(
+            graph,
+            MAX_SIGMA,
+            MAX_GAP,
+            MAX_PEN,
+            contact_constrained_ids={"mug"},
+        )
+    )["mug"]
+
+    assert not check.base_inside_parent
+    assert check.contact_constrained
+    assert check.passed
+
+
 def test_containment_is_tested_on_the_centre_of_mass_not_the_bounding_box():
     """The toppling condition is about weight, and a box centre is not where the
     weight is — see `scenes.mug_overhanging_its_support`. Measured on both rooms the

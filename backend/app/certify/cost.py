@@ -15,6 +15,7 @@ is what a training run actually pays, so the warm-up doubles as the settle.
 import time
 
 from app.schemas import CostCheck, ProxyTier, SceneGraph
+from app.simulation import SimulationGuard, checked_steps
 
 __all__ = ["run"]
 
@@ -38,6 +39,9 @@ def run(
     budget_ms: float,
     warmup_steps: int = WARMUP_STEPS,
     measure_steps: int = MEASURE_STEPS,
+    *,
+    scene_id: str = "unknown",
+    stage: str = "certify.cost",
 ) -> CostCheck:
     import mujoco
 
@@ -45,16 +49,15 @@ def run(
 
     model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
+    guard = SimulationGuard.for_model(model, graph, scene_id=scene_id, stage=stage)
     mujoco.mj_resetData(model, data)
 
     # Settle first, so the measurement covers the steady-state contact set rather
     # than the sparse one the scene starts with.
-    for _ in range(warmup_steps):
-        mujoco.mj_step(model, data)
+    checked_steps(mujoco, model, data, guard, warmup_steps)
 
     started = time.perf_counter()
-    for _ in range(measure_steps):
-        mujoco.mj_step(model, data)
+    checked_steps(mujoco, model, data, guard, measure_steps)
     elapsed = time.perf_counter() - started
 
     mean_ms = (elapsed / measure_steps) * 1e3

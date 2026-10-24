@@ -24,12 +24,27 @@ class PipelineContext:
     job_id: str
     image_path: Path
     settings: Settings
+    # The public Scene row id can differ from the job id for uploaded scenes.
+    # Physics diagnostics should name what the frontend names, while storage and
+    # cache paths continue to use the job id they were created under.
+    scene_id: str | None = None
 
     @classmethod
-    def create(cls, job_id: str, image_path: Path) -> "PipelineContext":
+    def create(
+        cls, job_id: str, image_path: Path, scene_id: str | None = None
+    ) -> "PipelineContext":
         settings = get_settings()
         settings.ensure_dirs()
-        return cls(job_id=job_id, image_path=image_path, settings=settings)
+        return cls(
+            job_id=job_id,
+            image_path=image_path,
+            settings=settings,
+            scene_id=scene_id,
+        )
+
+    @property
+    def trace_id(self) -> str:
+        return self.scene_id or self.job_id
 
     def workdir(self) -> Path:
         path = self.settings.scenes_dir / self.job_id

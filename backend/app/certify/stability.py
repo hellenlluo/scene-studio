@@ -1,8 +1,17 @@
-"""Stability certification: settle the scene under gravity and see what moved.
+"""Stability certification: release the scene under gravity and require it to rest.
 
-An object passes when, after `settle_seconds` of simulated time, its centre of
-mass has barely moved, its orientation has barely drifted, and it was not
-overlapping anything to begin with.
+An object passes when its centre of mass barely moved, its orientation barely
+drifted, it was not overlapping anything to begin with, and its linear and
+filtered COM and tilt rates remain low for a continuous quiet interval.  Rates
+come from pose change over a half-second window, not MuJoCo's instantaneous
+velocity.  Contact impulses can report centimetres per second for one 2 ms step
+while a visibly resting body vibrates by a fraction of a millimetre; treating each
+impulse as renewed motion falsely failed the `room` rug and side table.
+
+Orientation means **tilt relative to gravity**, not arbitrary quaternion change.
+A mug may rotate a few degrees around world-up without becoming less stable.  The
+old total-angle measurement called that yaw a tip even though its gravity-relative
+tilt changed by only 0.21 degrees.
 
 The third of those is the one with a trap in it. **Interpenetration is measured
 at t=0, before a single step.** The constraint solver's whole job is to push
@@ -26,27 +35,29 @@ import numpy as np
 from app.config import Settings
 from app.export import mjcf
 from app.schemas import SceneGraph, StabilityCheck
+from app.simulation import SimulationGuard, checked_steps
 
 __all__ = ["run"]
 
 
-def _quat_angle_deg(a: np.ndarray, b: np.ndarray) -> float:
-    """Angle of the rotation taking `a` to `b`.
+def _gravity_in_body(quaternion: np.ndarray) -> np.ndarray:
+    """World-up expressed in body coordinates for a MuJoCo wxyz quaternion."""
+    w, x, y, z = quaternion / np.linalg.norm(quaternion)
+    # Third row of the body-to-world rotation matrix, equivalently R.T @ world_up.
+    return np.asarray(
+        [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)]
+    )
 
-    Two subtleties, both of which inflate the reported drift of an object that
-    never moved:
 
-    * `abs` on the dot product, because q and -q are the same rotation. Without it
-      a body sitting still can report ~360 degrees.
-    * Normalise first. `2*arccos(dot)` has an infinite derivative at dot = 1,
-      which is exactly where a resting object sits, so a quaternion off unit
-      length by 1e-5 reads as 0.7 degrees of drift — a third of the 2 degree
-      budget, from rounding alone.
+def _tilt_angle_deg(a: np.ndarray, b: np.ndarray) -> float:
+    """Gravity-relative tilt between two poses, deliberately ignoring world yaw.
+
+    Expressing gravity in body coordinates makes a world-up rotation disappear:
+    ``(Rz @ R).T @ z == R.T @ z``.  Normalising before the dot product also avoids
+    inventing tilt from rounded quaternions.
     """
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    dot = min(1.0, abs(float(np.dot(a, b))))
-    return float(np.degrees(2.0 * np.arccos(dot)))
+    dot = float(np.dot(_gravity_in_body(a), _gravity_in_body(b)))
+    return float(np.degrees(np.arccos(np.clip(dot, -1.0, 1.0))))
 
 
 def _object_geoms(model, graph: SceneGraph) -> dict[str, list[int]]:
@@ -86,11 +97,18 @@ def _initial_penetration(
     return worst, name.split("/")[0]
 
 
-def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
+def run(
+    graph: SceneGraph,
+    settings: Settings,
+    *,
+    scene_id: str = "unknown",
+    stage: str = "certify.stability",
+) -> list[StabilityCheck]:
     import mujoco
 
     model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
+    guard = SimulationGuard.for_model(model, graph, scene_id=scene_id, stage=stage)
 
     roots = {
         obj.object_id: model.body(mjcf.body_name(obj.object_id, obj.root_part.part_id)).id
@@ -106,6 +124,15 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
     penetration: dict[str, tuple[float, str | None]] = {}
     start_com: dict[str, np.ndarray] = {}
     start_quat: dict[str, np.ndarray] = {}
+    max_displacement = {obj.object_id: 0.0 for obj in graph.objects}
+    max_drift = {obj.object_id: 0.0 for obj in graph.objects}
+    # A trailing pose window filters the alternating collision impulses which made
+    # raw qvel a poor definition of rest. Each list retains the most recent sample
+    # at or before the window boundary plus everything newer.
+    pose_history: dict[str, list[tuple[float, np.ndarray, np.ndarray]]] = {}
+    last_above_speed_limit = {obj.object_id: 0.0 for obj in graph.objects}
+    linear_speed = {obj.object_id: 0.0 for obj in graph.objects}
+    angular_speed = {obj.object_id: 0.0 for obj in graph.objects}
     for obj in graph.objects:
         own = geoms[obj.object_id]
         # Everything else in the scene: other objects, and the floor.
@@ -116,19 +143,75 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
         body = roots[obj.object_id]
         start_com[obj.object_id] = data.subtree_com[body].copy()
         start_quat[obj.object_id] = data.xquat[body].copy()
+        pose_history[obj.object_id] = [
+            (0.0, start_com[obj.object_id].copy(), start_quat[obj.object_id].copy())
+        ]
 
-    steps = round(settings.settle_seconds / model.opt.timestep)
+    # `settle_seconds` is a minimum observation period.  A scene which is already
+    # quiet stops there; a scene which is still moving receives time to settle, but
+    # no longer than the configured timeout.  Taking the maximum also makes odd but
+    # valid test/dev configurations (quiet interval longer than the minimum) behave
+    # predictably.
+    minimum_seconds = max(settings.settle_seconds, settings.settle_quiet_seconds)
+    timeout_seconds = max(minimum_seconds, settings.max_settle_seconds)
+    steps = round(timeout_seconds / model.opt.timestep)
     for _ in range(steps):
-        mujoco.mj_step(model, data)
+        checked_steps(mujoco, model, data, guard)
+        # The certificate asks whether anything jumps at any point after release,
+        # not merely whether it happens to return near its starting pose at the end
+        # of the window.  Retaining the trajectory maximum also makes a transient
+        # tip visible instead of certifying it because the final frame looks calm.
+        for obj in graph.objects:
+            body = roots[obj.object_id]
+            max_displacement[obj.object_id] = max(
+                max_displacement[obj.object_id],
+                float(np.linalg.norm(data.subtree_com[body] - start_com[obj.object_id])),
+            )
+            max_drift[obj.object_id] = max(
+                max_drift[obj.object_id],
+                _tilt_angle_deg(start_quat[obj.object_id], data.xquat[body]),
+            )
+            history = pose_history[obj.object_id]
+            history.append(
+                (float(data.time), data.subtree_com[body].copy(), data.xquat[body].copy())
+            )
+            cutoff = float(data.time) - settings.settle_quiet_seconds
+            while len(history) > 2 and history[1][0] <= cutoff:
+                history.pop(0)
+            old_time, old_com, old_quat = history[0]
+            elapsed = float(data.time) - old_time
+            window_ready = elapsed >= settings.settle_quiet_seconds - model.opt.timestep / 2
+            if window_ready:
+                linear_speed[obj.object_id] = float(
+                    np.linalg.norm(data.subtree_com[body] - old_com) / elapsed
+                )
+                angular_speed[obj.object_id] = (
+                    _tilt_angle_deg(old_quat, data.xquat[body]) / elapsed
+                )
+            if not window_ready or (
+                linear_speed[obj.object_id] > settings.max_linear_speed_m_s
+                or angular_speed[obj.object_id] > settings.max_angular_speed_deg_s
+            ):
+                last_above_speed_limit[obj.object_id] = float(data.time)
+
+        if float(data.time) >= minimum_seconds and all(
+            float(data.time) - last_above_speed_limit[obj.object_id]
+            >= settings.settle_quiet_seconds
+            for obj in graph.objects
+        ):
+            break
     # mj_step leaves the derived quantities one state behind for our purposes.
     mujoco.mj_forward(model, data)
 
     checks: list[StabilityCheck] = []
     for obj in graph.objects:
-        body = roots[obj.object_id]
-        displacement = float(np.linalg.norm(data.subtree_com[body] - start_com[obj.object_id]))
-        drift = _quat_angle_deg(start_quat[obj.object_id], data.xquat[body])
+        displacement = max_displacement[obj.object_id]
+        drift = max_drift[obj.object_id]
         overlap, against = penetration[obj.object_id]
+        quiet_duration = max(
+            0.0, float(data.time) - last_above_speed_limit[obj.object_id]
+        )
+        settled = quiet_duration >= settings.settle_quiet_seconds
 
         checks.append(
             StabilityCheck(
@@ -137,10 +220,16 @@ def run(graph: SceneGraph, settings: Settings) -> list[StabilityCheck]:
                 orientation_drift_deg=drift,
                 initial_penetration_m=overlap,
                 penetration_against=against,
+                terminal_linear_speed_m_s=linear_speed[obj.object_id],
+                terminal_angular_speed_deg_s=angular_speed[obj.object_id],
+                quiet_duration_s=quiet_duration,
+                simulation_time_s=float(data.time),
+                settled=settled,
                 passed=(
                     displacement <= settings.max_com_displacement_m
                     and drift <= settings.max_orientation_drift_deg
                     and overlap <= settings.max_penetration_m
+                    and settled
                 ),
             )
         )

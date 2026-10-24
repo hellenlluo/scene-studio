@@ -46,6 +46,8 @@ function balanceCheck(
     contact_count: 4,
     evidence_source: 'collision_proxy',
     contact_force_feasible: true,
+    equilibrium_model: 'horizontal_support_2d',
+    non_horizontal_contact_count: 0,
     support_margin_m: 0.05,
     full_base_margin_m: 0.05,
     full_base_force_feasible: true,
@@ -65,6 +67,7 @@ function scaleCheck(objectId: string, overrides: Partial<ScaleCheck> = {}): Scal
     support_gap_m: 0,
     touching_parent: true,
     base_inside_parent: true,
+    contact_constrained: false,
     passed: true,
     ...overrides,
   }
@@ -79,6 +82,11 @@ function stabilityCheck(
     com_displacement_m: 0,
     orientation_drift_deg: 0,
     initial_penetration_m: 0,
+    terminal_linear_speed_m_s: 0,
+    terminal_angular_speed_deg_s: 0,
+    quiet_duration_s: 0.5,
+    simulation_time_s: 2,
+    settled: true,
     passed: true,
     ...overrides,
   }
@@ -214,6 +222,31 @@ describe('reasonsFor', () => {
     ])
   })
 
+  it('explains a failed general 3D contact wrench', () => {
+    const cert = certificate({
+      balance: [
+        balanceCheck('book', {
+          failure_kind: 'contact_wrench_infeasible',
+          equilibrium_model: 'contact_wrench_3d',
+          wrench_contacts: [
+            {
+              position_m: [0, 0, 0],
+              normal_m: [0, 0, 1],
+              friction: [1, 1, 0.005, 0.0001, 0.0001],
+              dimensions: 6,
+              distance_m: 0,
+            },
+          ],
+          passed: false,
+        }),
+      ],
+    })
+
+    expect(reasonsFor('book', cert)).toEqual([
+      'cannot balance gravity with its 1 measured 3D contacts',
+    ])
+  })
+
   it('does not report a gap that is inside the tolerance', () => {
     // The regression this exists for. An object over-hanging its support fails on
     // containment while its height is fine, and every scale reason used to be
@@ -226,6 +259,30 @@ describe('reasonsFor', () => {
 
     expect(reasons).toEqual(['base is not over its support'])
     expect(reasons.some((r) => r.includes('floating'))).toBe(false)
+  })
+
+  it('explains a body that is still moving when the settling timeout expires', () => {
+    const cert = certificate({
+      stability: [
+        stabilityCheck('mug', {
+          terminal_linear_speed_m_s: 0.0113,
+          terminal_angular_speed_deg_s: 3.43,
+          quiet_duration_s: 0,
+          simulation_time_s: 5,
+          settled: false,
+          passed: false,
+        }),
+      ],
+      linear_speed_tolerance_m_s: 0.005,
+      angular_speed_tolerance_deg_s: 1,
+      settle_timeout_seconds: 5,
+      settle_quiet_seconds: 0.5,
+    })
+
+    expect(reasonsFor('mug', cert)).toEqual([
+      'does not come to rest within 5.0 s: filtered COM rate 11.3 mm/s and tilt rate 3.4°/s ' +
+        '(needs ≤5.0 mm/s and ≤1.0°/s continuously for 0.5 s)',
+    ])
   })
 
   it('quotes the gap tolerance, not the penetration tolerance', () => {

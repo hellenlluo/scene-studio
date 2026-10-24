@@ -394,9 +394,19 @@ def test_each_way_a_scene_can_fail_has_a_repair_that_targets_it():
         for name, field in (ScaleCheck.model_fields | StabilityCheck.model_fields).items()
         if name not in {"object_id", "passed", "resting_on", "penetration_against"}
     }
-    # These two are consequences measured after settling, not inputs a repair can
-    # target: an object that drifts is fixed by correcting whatever made it drift.
-    failable -= {"com_displacement_m", "orientation_drift_deg"}
+    # These are consequences/evidence measured after settling, not geometric inputs
+    # a repair can target: an object that keeps moving is fixed by correcting
+    # whatever made it move, not by blindly translating it in an arbitrary direction.
+    failable -= {
+        "contact_constrained",
+        "com_displacement_m",
+        "orientation_drift_deg",
+        "terminal_linear_speed_m_s",
+        "terminal_angular_speed_deg_s",
+        "quiet_duration_s",
+        "simulation_time_s",
+        "settled",
+    }
 
     assert failable == set(covered), (
         f"criteria with no repair: {sorted(failable - set(covered))}; "

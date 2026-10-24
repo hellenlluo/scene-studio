@@ -13,6 +13,8 @@ function check(objectId: string, passed: boolean): BalanceCheck {
     support_polygon_xy_m: [],
     evidence_source: "collision_proxy",
     contact_force_feasible: passed,
+    equilibrium_model: "horizontal_support_2d",
+    non_horizontal_contact_count: 0,
     support_margin_m: passed ? 0.1 : -0.1,
     full_base_margin_m: 0.1,
     full_base_force_feasible: true,

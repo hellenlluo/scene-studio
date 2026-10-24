@@ -44,6 +44,16 @@ def test_parent_child_contacts_are_enabled(graph):
     assert model.opt.disableflags & mujoco.mjtDisableBit.mjDSBL_FILTERPARENT
 
 
+def test_contact_patch_moments_are_enabled(graph):
+    """The 3-D balance LP and dynamics must activate the same friction terms."""
+    model = mujoco.MjModel.from_xml_string(mjcf.build_xml(graph))
+
+    assert set(model.geom_condim) == {6}
+    assert model.geom_friction[:, 0] == pytest.approx(1.0)
+    assert model.geom_friction[:, 1] == pytest.approx(0.005)
+    assert model.geom_friction[:, 2] == pytest.approx(0.0001)
+
+
 def test_box_size_is_a_half_extent():
     """MuJoCo's box `size` is a half-extent. Treating dims_m as the size directly
     doubles every object, and nothing complains — things just stop fitting."""

@@ -185,9 +185,11 @@ interface Props {
   envelope: SceneEnvelope;
   /** Live physics poses, or an empty map when physics is off. */
   poses?: Map<string, Pose>;
+  /** Prevent edits while the worker is compiling or stepping its edit snapshot. */
+  physicsActive?: boolean;
 }
 
-export function Viewer({ envelope, poses }: Props) {
+export function Viewer({ envelope, poses, physicsActive = false }: Props) {
   const select = useSceneStore((s) => s.select);
   const mode = useSceneStore((s) => s.mode);
   const showBalanceDebug = useSceneStore((s) => s.showBalanceDebug);
@@ -367,7 +369,7 @@ export function Viewer({ envelope, poses }: Props) {
           `makeDefault` on OrbitControls is what lets drei suspend orbiting while a
           handle is held — without it the camera and the object move together and
           neither goes where it was asked. */}
-      {selected && (
+      {selected && !physicsActive && (
         <TransformControls
           object={selected}
           mode={mode}
@@ -389,18 +391,30 @@ export function Viewer({ envelope, poses }: Props) {
           </div>
           {!hasBalanceEvidence ? (
             <div className="balance-legend__empty">
-              No stored contact evidence. Recertify this scene with certificate v1.3.
+              No stored contact evidence. Recertify this scene with certificate v1.3 or newer.
             </div>
           ) : (
             <>
               <div><span className="balance-key balance-key--contact" />contact samples</div>
+              <div><span className="balance-key balance-key--wrench" />3D contact normals</div>
               <div><span className="balance-key balance-key--com" />centre of mass</div>
               <div><span className="balance-key balance-key--region" />support region</div>
               {inspected && (
                 <div className="balance-legend__measurement">
-                  {inspected.contact_count} contacts · margin{" "}
-                  {(inspected.support_margin_m * 1000).toFixed(1)} mm ·{" "}
-                  {inspected.evidence_source.replaceAll("_", " ")}
+                  {inspected.equilibrium_model === "contact_wrench_3d" ? (
+                    <>
+                      {inspected.wrench_contacts?.length ?? 0} 3D contacts ·{" "}
+                      {inspected.non_horizontal_contact_count ?? 0} side contact
+                      {(inspected.non_horizontal_contact_count ?? 0) === 1 ? "" : "s"} ·{" "}
+                      {inspected.contact_force_feasible ? "feasible" : "infeasible"}
+                    </>
+                  ) : (
+                    <>
+                      {inspected.contact_count} contacts · margin{" "}
+                      {(inspected.support_margin_m * 1000).toFixed(1)} mm ·{" "}
+                      {inspected.evidence_source.replaceAll("_", " ")}
+                    </>
+                  )}
                 </div>
               )}
             </>

@@ -99,13 +99,16 @@ def test_every_axis_carries_its_measurements(ctx):
 def test_certificate_identifies_what_ran(ctx):
     cert = certify.run(ctx, scenes.kitchen())
 
-    assert cert.certificate_version == "1.3"
+    assert cert.certificate_version == "1.7"
     assert cert.generated_at is not None and cert.generated_at.tzinfo is not None
     assert cert.simulator_name == "MuJoCo"
     assert cert.simulator_version
     assert len(cert.scene_graph_sha256 or "") == 64
     assert len(cert.collision_geometry_sha256 or "") == 64
     assert cert.axis_errors == {}
+    assert cert.linear_speed_tolerance_m_s == ctx.settings.max_linear_speed_m_s
+    assert cert.angular_speed_tolerance_deg_s == ctx.settings.max_angular_speed_deg_s
+    assert cert.settle_quiet_seconds == ctx.settings.settle_quiet_seconds
 
 
 def test_graph_hash_changes_when_the_certified_input_changes(ctx):

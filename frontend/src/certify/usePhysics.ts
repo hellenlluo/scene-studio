@@ -6,17 +6,19 @@
  * someone who only wants to look at a scene. And more importantly the solved pose
  * *is* the answer — running gravity on load would show the scene falling and hide
  * what the solver produced. Stepping only ever moves meshes in the viewport;
- * nothing is written back to `SceneSpec`, so "reset" means asking the server's copy
- * again rather than undoing anything.
+ * nothing is written back to `SceneSpec`. When there are pending edits, the server
+ * compiles an ephemeral clone containing them; resetting returns to that draft.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, storageUrl } from '../api/client'
-import type { Command, Event, Pose } from './physics.worker'
+import type { ObjectEdit } from '../api/client'
+import type { Command, Event, PhysicsViolation, Pose } from './physics.worker'
 import PhysicsWorker from './physics.worker?worker'
 
 /** Simulated seconds advanced per animation frame. */
 const STEP_SECONDS = 1 / 60
+const EMPTY_EDITS: ReadonlyMap<string, ObjectEdit> = new Map()
 
 export type PhysicsState = 'idle' | 'loading' | 'running' | 'paused' | 'diverged' | 'error'
 
@@ -27,6 +29,11 @@ export interface Physics {
   /** Simulated seconds since the scene was compiled. */
   time: number
   error: string | null
+  /** Pending edits captured when this MuJoCo model was compiled. */
+  draftEdits: ObjectEdit[]
+  usingDraft: boolean
+  /** Maximum observed motion for objects that crossed the certificate limits. */
+  violations: PhysicsViolation[]
   enable: () => void
   disable: () => void
   pause: () => void
@@ -34,11 +41,19 @@ export interface Physics {
   reset: () => void
 }
 
-export function usePhysics(sceneId: string | null, updatedAt?: string): Physics {
+export function usePhysics(
+  sceneId: string | null,
+  updatedAt?: string,
+  maxDisplacementM = 0.01,
+  maxTiltDeg = 2,
+  pendingEdits: ReadonlyMap<string, ObjectEdit> = EMPTY_EDITS,
+): Physics {
   const [state, setState] = useState<PhysicsState>('idle')
   const [poses, setPoses] = useState<Map<string, Pose>>(new Map())
   const [time, setTime] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [violations, setViolations] = useState<PhysicsViolation[]>([])
+  const [draftEdits, setDraftEdits] = useState<ObjectEdit[]>([])
 
   const worker = useRef<Worker | null>(null)
   const frame = useRef<number | null>(null)
@@ -67,6 +82,8 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
     setPoses(new Map())
     setTime(0)
     setError(null)
+    setViolations([])
+    setDraftEdits([])
   }
 
   // The worker is an external system, so tearing it down belongs in an effect. It
@@ -75,8 +92,10 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
 
   const enable = useCallback(() => {
     if (!sceneId || worker.current) return
+    const editsSnapshot = [...pendingEdits.values()]
     setState('loading')
     setError(null)
+    setDraftEdits(editsSnapshot)
 
     const instance = new PhysicsWorker()
     worker.current = instance
@@ -95,6 +114,7 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
       } else if (message.type === 'poses') {
         setTime(message.time)
         setPoses(new Map(message.poses.map((pose) => [pose.objectId, pose])))
+        setViolations(message.violations)
         // Backpressure: the next step is scheduled by the reply to the last one, so
         // exactly one is ever in flight. Posting on every animation frame regardless
         // put no bound on the worker's queue — the moment stepping costs more than a
@@ -118,7 +138,9 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
 
     void (async () => {
       try {
-        const bundle = await api.scenePhysics(sceneId)
+        const bundle = editsSnapshot.length
+          ? await api.previewScenePhysics(sceneId, { objects: editsSnapshot })
+          : await api.scenePhysics(sceneId)
         // Fetched here rather than in the worker so one failed asset surfaces as a
         // message the panel can show, instead of MuJoCo failing to compile with a
         // reason that has to be dug out of the console.
@@ -131,7 +153,14 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
         )
         const meshes = Object.fromEntries(entries)
         instance.postMessage(
-          { type: 'start', mjcf: bundle.mjcf, meshes, reportInterval: STEP_SECONDS },
+          {
+            type: 'start',
+            mjcf: bundle.mjcf,
+            meshes,
+            reportInterval: STEP_SECONDS,
+            maxDisplacementM,
+            maxTiltDeg,
+          },
           // Transferred, not copied: 109 buffers is worth not duplicating.
           Object.values(meshes),
         )
@@ -140,7 +169,7 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
         setState('error')
       }
     })()
-  }, [sceneId, updatedAt])
+  }, [sceneId, updatedAt, maxDisplacementM, maxTiltDeg, pendingEdits])
 
   const disable = useCallback(() => {
     teardown()
@@ -148,6 +177,8 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
     setPoses(new Map())
     setTime(0)
     setError(null)
+    setViolations([])
+    setDraftEdits([])
   }, [teardown])
 
   const pause = useCallback(() => {
@@ -170,12 +201,13 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
   }, [state])
 
   const reset = useCallback(() => {
-    // Back to the compiled pose — which is the server's, since nothing here ever
-    // wrote to it. Also the way out of `diverged`: the worker restarts its own
-    // clock, so stepping can resume from a state that is known good.
+    // Back to the compiled pose — either the stored graph or the captured draft.
+    // Also the way out of `diverged`: the worker restarts its own clock, so
+    // stepping can resume from a state that is known good.
     worker.current?.postMessage({ type: 'reset' } satisfies Command)
     setTime(0)
     setError(null)
+    setViolations([])
     if (worker.current) {
       setState('running')
       stepping.current = true
@@ -184,7 +216,32 @@ export function usePhysics(sceneId: string | null, updatedAt?: string): Physics 
   }, [])
 
   return useMemo(
-    () => ({ state, poses, time, error, enable, disable, pause, resume, reset }),
-    [state, poses, time, error, enable, disable, pause, resume, reset],
+    () => ({
+      state,
+      poses,
+      time,
+      error,
+      violations,
+      draftEdits,
+      usingDraft: draftEdits.length > 0,
+      enable,
+      disable,
+      pause,
+      resume,
+      reset,
+    }),
+    [
+      state,
+      poses,
+      time,
+      error,
+      violations,
+      draftEdits,
+      enable,
+      disable,
+      pause,
+      resume,
+      reset,
+    ],
   )
 }

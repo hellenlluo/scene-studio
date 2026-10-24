@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SceneObject } from "../api/client";
 import type { Pose } from "./physics.worker";
-import { physicsPoseEdits } from "./physicsEdits";
+import { mergeDraftWithPhysicsEdits, physicsPoseEdits } from "./physicsEdits";
 
 function object(objectId: string): SceneObject {
   return {
@@ -42,5 +42,46 @@ describe("physicsPoseEdits", () => {
     };
 
     expect(physicsPoseEdits([object("clock")], new Map([["clock", pose]]))).toEqual([]);
+  });
+});
+
+describe("mergeDraftWithPhysicsEdits", () => {
+  it("preserves scale while replacing the draft pose with the simulated pose", () => {
+    const pose: Pose = {
+      objectId: "clock",
+      position: [0.03, 0, 0.48],
+      quaternion: [0.99, 0.14, 0, 0],
+    };
+
+    expect(
+      mergeDraftWithPhysicsEdits(
+        [object("clock")],
+        new Map([["clock", pose]]),
+        [{ object_id: "clock", position_m: [0.1, 0, 0.5], scale: 1.2 }],
+      ),
+    ).toEqual([
+      {
+        object_id: "clock",
+        scale: 1.2,
+        position_m: pose.position,
+        orientation: pose.quaternion,
+      },
+    ]);
+  });
+
+  it("drops a draft pose when physics returns it to the committed pose", () => {
+    const pose: Pose = {
+      objectId: "clock",
+      position: [0, 0, 0.5],
+      quaternion: [1, 0, 0, 0],
+    };
+
+    expect(
+      mergeDraftWithPhysicsEdits(
+        [object("clock")],
+        new Map([["clock", pose]]),
+        [{ object_id: "clock", position_m: [0.1, 0, 0.5], mass_kg: 2 }],
+      ),
+    ).toEqual([{ object_id: "clock", mass_kg: 2 }]);
   });
 });

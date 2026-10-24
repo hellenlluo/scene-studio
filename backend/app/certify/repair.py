@@ -113,7 +113,7 @@ def _violation(cert: Certificate, settings: Settings, ids: set[str] | None = Non
         )
         worst_sigma = max(abs(d) for d in check.deviation_sigma)
         total += max(0.0, worst_sigma / settings.max_prior_deviation_sigma - 1.0)
-        total += 0.0 if check.base_inside_parent else 1.0
+        total += 0.0 if check.base_inside_parent or check.contact_constrained else 1.0
         # Every criterion `ScaleCheck.passed` tests has to appear here, or the score
         # and the certificate disagree about what is wrong. This one was missing, so
         # a repair that put an object back on the thing it is recorded as resting on
@@ -128,13 +128,35 @@ def _violation(cert: Certificate, settings: Settings, ids: set[str] | None = Non
         # term makes a degenerate/no-contact patch visible; the continuous term
         # rewards moving an outside COM toward the feasible wrench region.
         total += 0.0 if check.contact_force_feasible else 1.0
-        total += max(0.0, -check.support_margin_m / max(settings.max_support_gap_m, 1e-9))
+        # The XY margin is diagnostic when a 3-D wall/contact wrench holds the
+        # object. Scoring its negative value would make a passing certificate have
+        # non-zero repair violation and invite an incorrect lateral move.
+        if not check.passed:
+            total += max(
+                0.0,
+                -check.support_margin_m / max(settings.max_support_gap_m, 1e-9),
+            )
     for check in cert.stability:
         if not counted(check.object_id):
             continue
         total += max(0.0, check.com_displacement_m / settings.max_com_displacement_m - 1.0)
         total += max(0.0, check.orientation_drift_deg / settings.max_orientation_drift_deg - 1.0)
         total += max(0.0, check.initial_penetration_m / settings.max_penetration_m - 1.0)
+        total += max(
+            0.0,
+            check.terminal_linear_speed_m_s / max(settings.max_linear_speed_m_s, 1e-9)
+            - 1.0,
+        )
+        total += max(
+            0.0,
+            check.terminal_angular_speed_deg_s
+            / max(settings.max_angular_speed_deg_s, 1e-9)
+            - 1.0,
+        )
+        # A body can be below the instantaneous limits on the final step without
+        # having stayed there for the required interval. Keep that binary gap in
+        # the repair objective so score==0 continues to mean the certificate passes.
+        total += 0.0 if check.settled else 1.0
     for check in cert.inertial:
         if not counted(check.object_id):
             continue
@@ -407,7 +429,7 @@ def _slide_onto_support(graph: SceneGraph, cert: Certificate, settings: Settings
     heights = support.build(graph, settings)
     balance_by_id = {check.object_id: check for check in cert.balance}
     for check in cert.scale:
-        if check.base_inside_parent:
+        if check.base_inside_parent or check.contact_constrained:
             continue
         obj = graph.get(check.object_id)
         if obj is None or obj.supported_by is None:
@@ -733,9 +755,11 @@ def _reparent(graph: SceneGraph, cert: Certificate, settings: Settings):
         )
 
 
-# One per criterion `certify.scale` and `certify.stability` can fail on. A
-# criterion with no strategy produces a scene that is reported broken and cannot
-# be acted on; `test_repair` asserts the pairing.
+# One per directly actionable geometry criterion in `certify.scale` and
+# `certify.stability`; `test_repair` asserts that pairing. Displacement, rotation
+# and terminal speed are consequences rather than repair inputs. They decide
+# whether a proposed geometric correction actually worked, but do not by
+# themselves provide a safe direction in which to move the object.
 _STRATEGIES = (
     _snap_to_support,
     _slide_onto_support,

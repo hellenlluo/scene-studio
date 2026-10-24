@@ -10,6 +10,7 @@ import {
 } from "./export";
 import { useSceneStore } from "./store";
 import { outcomeReason } from "./outcome";
+import { UploadScene } from "./UploadScene";
 
 interface Props {
   scenes: SceneSummary[];
@@ -50,6 +51,7 @@ export function ScenePanel({ scenes, envelope }: Props) {
   return (
     <aside className="panel panel--left">
       <h2>Scenes</h2>
+      <UploadScene />
       <ul className="scene-list">
         {scenes.map((summary) => (
           <li key={summary.id}>

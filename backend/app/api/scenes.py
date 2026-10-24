@@ -15,6 +15,8 @@ from app.pipeline.base import PipelineContext
 from app.schemas import (
     AxisStatus,
     ExportResult,
+    ObjectEdit,
+    PhysicsPreviewRequest,
     Provenance,
     RepairAction,
     SceneEditRequest,
@@ -114,6 +116,48 @@ def _envelope(scene: Scene) -> SceneEnvelope:
     return SceneEnvelope(spec=SceneSpec.model_validate(scene.spec), updated_at=scene.updated_at)
 
 
+def _validate_object_edits(graph, edits: list[ObjectEdit]) -> None:
+    """Reject references which cannot be applied to this graph."""
+    known_objects = {obj.object_id for obj in graph.objects}
+    if unknown := {edit.object_id for edit in edits} - known_objects:
+        raise HTTPException(422, f"unknown object ids: {sorted(unknown)}")
+    supports = {edit.supported_by for edit in edits if edit.supported_by is not None}
+    if unknown := supports - known_objects:
+        raise HTTPException(422, f"unknown support ids: {sorted(unknown)}")
+
+
+def _apply_object_edits(graph, edits: list[ObjectEdit]) -> None:
+    """Apply the same object fields to a stored graph or an ephemeral preview."""
+    for change in edits:
+        obj = graph.get(change.object_id)
+        if obj is None:  # validation normally makes this unreachable
+            continue
+        for field in ("scale", "position_m", "orientation", "supported_by"):
+            value = getattr(change, field)
+            if value is not None:
+                setattr(obj, field, value)
+                obj.provenance[field] = Provenance.USER
+        if change.mass_kg is not None:
+            # Mass lives on the root part. Move density with it so the edit does
+            # not make the inertial identity false merely through bookkeeping.
+            part = obj.root_part
+            if part.inertial is not None and part.inertial.volume_m3 > 0.0:
+                part.inertial = part.inertial.model_copy(
+                    update={
+                        "mass_kg": change.mass_kg,
+                        "density_kg_m3": change.mass_kg / part.inertial.volume_m3,
+                    }
+                )
+                obj.provenance["mass_kg"] = Provenance.USER
+
+
+def _physics_bundle(graph, settings) -> PhysicsBundle:
+    meshes = {
+        name: settings.storage_relative(path) for name, path in mjcf.mesh_files(graph).items()
+    }
+    return PhysicsBundle(mjcf=mjcf.build_xml(graph), meshes=meshes)
+
+
 @router.get("", response_model=list[SceneSummary])
 def list_scenes(db: Session = Depends(get_db)) -> list[SceneSummary]:
     scenes = db.query(Scene).order_by(Scene.created_at.desc()).all()
@@ -159,10 +203,31 @@ def scene_physics(scene_id: str, db: Session = Depends(get_db)) -> PhysicsBundle
 
     settings = get_settings()
     graph = SceneSpec.model_validate(scene.spec).graph
-    meshes = {
-        name: settings.storage_relative(path) for name, path in mjcf.mesh_files(graph).items()
-    }
-    return PhysicsBundle(mjcf=mjcf.build_xml(graph), meshes=meshes)
+    return _physics_bundle(graph, settings)
+
+
+@router.post("/{scene_id}/physics/preview", response_model=PhysicsBundle)
+def preview_scene_physics(
+    scene_id: str,
+    preview: PhysicsPreviewRequest,
+    db: Session = Depends(get_db),
+) -> PhysicsBundle:
+    """Build MuJoCo input from pending edits without mutating the scene.
+
+    There is deliberately no solve or repair here. The preview answers what gravity
+    does to the exact draft the user sees; committing remains the operation which
+    re-derives supports, solves, certifies, and optionally repairs.
+    """
+    scene = db.get(Scene, scene_id)
+    if scene is None:
+        raise HTTPException(404, "scene not found")
+
+    settings = get_settings()
+    stored = SceneSpec.model_validate(scene.spec)
+    graph = stored.graph.model_copy(deep=True)
+    _validate_object_edits(graph, preview.objects)
+    _apply_object_edits(graph, preview.objects)
+    return _physics_bundle(graph, settings)
 
 
 @router.post("/{scene_id}/repair", response_model=RepairResponse)
@@ -184,7 +249,11 @@ def repair_scene(scene_id: str, db: Session = Depends(get_db)) -> RepairResponse
 
     settings = get_settings()
     spec = SceneSpec.model_validate(scene.spec)
-    ctx = PipelineContext.create(scene.job_id, settings.storage_dir / spec.image_path)
+    ctx = PipelineContext.create(
+        scene.job_id,
+        settings.storage_dir / spec.image_path,
+        scene_id=scene_id,
+    )
 
     certificate = certify.run(ctx, spec.graph)
     result = repair.run(ctx, spec.graph, certificate)
@@ -262,40 +331,18 @@ def edit_scene(
     supports_before = {obj.object_id: obj.supported_by for obj in spec.graph.objects}
 
     known_objects = {o.object_id for o in spec.graph.objects}
-    if unknown := {e.object_id for e in edit.objects} - known_objects:
-        raise HTTPException(422, f"unknown object ids: {sorted(unknown)}")
+    _validate_object_edits(spec.graph, edit.objects)
     if unknown := {a.object_id for a in edit.anchors} - known_objects:
         raise HTTPException(422, f"unknown anchor object ids: {sorted(unknown)}")
-    supports = {e.supported_by for e in edit.objects if e.supported_by is not None}
-    if unknown := supports - known_objects:
-        raise HTTPException(422, f"unknown support ids: {sorted(unknown)}")
-
-    for change in edit.objects:
-        obj = spec.graph.get(change.object_id)
-        if obj is None:
-            continue
-        for field in ("scale", "position_m", "orientation", "supported_by"):
-            value = getattr(change, field)
-            if value is not None:
-                setattr(obj, field, value)
-                obj.provenance[field] = Provenance.USER
-        if change.mass_kg is not None:
-            # Mass lives on the root part, and setting it breaks the
-            # density-times-volume identity the inertial axis checks — so the
-            # density is moved with it rather than left describing the old mass.
-            part = obj.root_part
-            if part.inertial is not None and part.inertial.volume_m3 > 0.0:
-                part.inertial = part.inertial.model_copy(
-                    update={
-                        "mass_kg": change.mass_kg,
-                        "density_kg_m3": change.mass_kg / part.inertial.volume_m3,
-                    }
-                )
-                obj.provenance["mass_kg"] = Provenance.USER
+    _apply_object_edits(spec.graph, edit.objects)
 
     spec.anchors = edit.anchors or spec.anchors
 
-    ctx = PipelineContext.create(scene.job_id, settings.storage_dir / spec.image_path)
+    ctx = PipelineContext.create(
+        scene.job_id,
+        settings.storage_dir / spec.image_path,
+        scene_id=scene_id,
+    )
     actions: list[RepairAction] = []
     free: set[str] = set()
     touched = {change.object_id for change in edit.objects}

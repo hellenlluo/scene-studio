@@ -135,7 +135,7 @@ nav {
    off to one side. */
 main {
   display: grid;
-  grid-template-columns: 15vw 1fr 15vw;
+  grid-template-columns: 20vw 1fr 20vw;
   flex: 1;
   min-height: 0;
 }
@@ -202,6 +202,9 @@ main {
 .balance-key--contact {
   background: #f4b942;
 }
+.balance-key--wrench {
+  background: #45c2d8;
+}
 .balance-key--com {
   background: #d66cff;
 }
@@ -235,6 +238,34 @@ main {
   list-style: none;
   margin: 0 0 1.5rem;
   padding: 0;
+}
+.scene-upload {
+  margin-bottom: 0.75rem;
+}
+.scene-upload-input {
+  display: none;
+}
+.scene-upload-button {
+  width: 100%;
+  overflow: hidden;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scene-upload-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.scene-upload-button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 .scene-item {
   display: flex;

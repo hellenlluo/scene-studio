@@ -31,6 +31,8 @@ def test_a_sound_scene_settles(settings):
     checks = stability.run(scenes.kitchen(), settings)
     assert len(checks) == 3
     assert all(c.passed for c in checks)
+    assert all(c.settled for c in checks)
+    assert all(c.quiet_duration_s >= settings.settle_quiet_seconds for c in checks)
 
 
 def test_resting_objects_barely_move(settings):
@@ -125,32 +127,89 @@ def test_thresholds_come_from_settings(settings):
 
 
 def test_settle_duration_comes_from_settings(settings):
-    """Barely any time to fall, so the mug has not landed yet."""
-    brief = settings.model_copy(update={"settle_seconds": 0.01})
+    """Barely any time to fall, so pose alone looks safe but motion fails it."""
+    brief = settings.model_copy(
+        update={
+            "settle_seconds": 0.01,
+            "max_settle_seconds": 0.01,
+            "settle_quiet_seconds": 0.005,
+        }
+    )
     check = _by_object(stability.run(scenes.mug_floating_above_table(), brief))["mug"]
     assert check.com_displacement_m < 0.01
+    assert check.terminal_linear_speed_m_s > brief.max_linear_speed_m_s
+    assert not check.settled
+    assert not check.passed
 
 
-# --- the quaternion double cover ----------------------------------------------
+def test_a_settled_check_records_terminal_velocity_evidence(settings):
+    check = _by_object(stability.run(scenes.kitchen(), settings))["mug"]
+    assert check.terminal_linear_speed_m_s <= settings.max_linear_speed_m_s
+    assert check.terminal_angular_speed_deg_s <= settings.max_angular_speed_deg_s
+    assert check.simulation_time_s == pytest.approx(settings.settle_seconds, abs=0.01)
 
 
-def test_opposite_quaternions_are_the_same_rotation():
-    """q and -q describe the same orientation. Without the abs, a body that never
-    moved can report ~360 degrees of drift and fail for no reason."""
+def test_alternating_contact_velocity_is_filtered_when_pose_stays_bounded(
+    settings, monkeypatch
+):
+    """Raw qvel is deliberately large on every step but alternates direction.
+
+    This models contact chatter: the instantaneous solver velocity exceeds the
+    rate limit by 4x while the pose only vibrates over a tiny bounded interval.
+    The old per-step gate failed it forever; the filtered pose rate must pass.
+    """
+    direction = 1.0
+
+    def chatter_step(mujoco_module, model, data, _guard):
+        nonlocal direction
+        mujoco_module.mj_step(model, data)
+        joint = model.joint(mjcf.free_joint_name("mug"))
+        dof = int(model.jnt_dofadr[joint.id])
+        data.qvel[dof] = direction * 0.02  # 20 mm/s, alternating every 2 ms
+        direction *= -1.0
+
+    monkeypatch.setattr(stability, "checked_steps", chatter_step)
+    brief = settings.model_copy(
+        update={
+            "settle_seconds": 0.1,
+            "max_settle_seconds": 0.2,
+            "settle_quiet_seconds": 0.02,
+        }
+    )
+    check = _by_object(stability.run(scenes.kitchen(), brief))["mug"]
+
+    assert check.com_displacement_m < 0.001
+    assert check.terminal_linear_speed_m_s < brief.max_linear_speed_m_s
+    assert check.settled
+    assert check.passed
+
+
+# --- gravity-relative tilt ----------------------------------------------------
+
+
+def test_opposite_quaternions_have_the_same_tilt():
+    """q and -q describe the same orientation."""
     q = np.array([0.7071068, 0.0, 0.0, 0.7071068])
-    assert stability._quat_angle_deg(q, -q) == pytest.approx(0.0, abs=1e-6)
-    assert stability._quat_angle_deg(q, q) == pytest.approx(0.0, abs=1e-6)
+    assert stability._tilt_angle_deg(q, -q) == pytest.approx(0.0, abs=1e-6)
+    assert stability._tilt_angle_deg(q, q) == pytest.approx(0.0, abs=1e-6)
 
 
-def test_a_slightly_denormalised_quaternion_does_not_invent_drift():
-    """2*arccos has an infinite derivative at zero angle, which is exactly where a
-    resting object sits — so an input off unit length by 1e-5 reads as 0.7 degrees
-    of drift, a third of the budget, purely from rounding."""
+def test_a_slightly_denormalised_quaternion_does_not_invent_tilt():
     sloppy = np.array([0.7071, 0.0, 0.0, 0.7071])  # norm 0.99999
-    assert stability._quat_angle_deg(sloppy, sloppy) == pytest.approx(0.0, abs=1e-6)
+    assert stability._tilt_angle_deg(sloppy, sloppy) == pytest.approx(0.0, abs=1e-6)
 
 
-def test_a_right_angle_reads_as_ninety_degrees():
+def test_world_yaw_is_not_tipping():
     identity = np.array([1.0, 0.0, 0.0, 0.0])
-    quarter_turn = np.array([0.7071068, 0.0, 0.0, 0.7071068])
-    assert stability._quat_angle_deg(identity, quarter_turn) == pytest.approx(90.0, abs=1e-3)
+    yaw_quarter_turn = np.array([0.7071068, 0.0, 0.0, 0.7071068])
+    assert stability._tilt_angle_deg(identity, yaw_quarter_turn) == pytest.approx(
+        0.0, abs=1e-6
+    )
+
+
+def test_a_right_angle_tip_reads_as_ninety_degrees():
+    identity = np.array([1.0, 0.0, 0.0, 0.0])
+    x_quarter_turn = np.array([0.7071068, 0.7071068, 0.0, 0.0])
+    assert stability._tilt_angle_deg(identity, x_quarter_turn) == pytest.approx(
+        90.0, abs=1e-3
+    )

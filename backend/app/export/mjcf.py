@@ -60,10 +60,24 @@ def free_joint_name(object_id: str) -> str:
 TIMESTEP_S = "0.002"
 CONTACT_SOLREF = "0.005 1"
 CONTACT_SOLIMP = "0.99 0.999 0.001"
+CONTACT_FRICTION = "1 0.005 0.0001"
 
 def _add_contact_defaults(root: ET.Element) -> None:
     default = ET.SubElement(root, "default")
-    ET.SubElement(default, "geom", {"solref": CONTACT_SOLREF, "solimp": CONTACT_SOLIMP})
+    # Six-dimensional contacts activate sliding, torsional, and rolling friction.
+    # Convex collision pieces otherwise meet at ideal points (MuJoCo's default
+    # condim=3), which throws away the finite-patch moment a book receives from a
+    # basket wall. The balance LP reads these same active dimensions.
+    ET.SubElement(
+        default,
+        "geom",
+        {
+            "solref": CONTACT_SOLREF,
+            "solimp": CONTACT_SOLIMP,
+            "condim": "6",
+            "friction": CONTACT_FRICTION,
+        },
+    )
 
 
 def _fmt(values: tuple[float, ...]) -> str:

@@ -59,6 +59,7 @@ from app.schemas import (
     SolveResult,
     SolveWeights,
 )
+from app.simulation import SimulationDiverged
 
 __all__ = ["SolveResult", "finalise_diagnostics", "run"]
 
@@ -402,17 +403,29 @@ def _edit_priors(
     return priors
 
 
-def _settle(ctx: PipelineContext, graph: SceneGraph) -> dict[str, np.ndarray]:
+def _settle(ctx: PipelineContext, graph: SceneGraph, round_index: int) -> dict[str, np.ndarray]:
     """Where each object ends up after gravity, as a target to pull toward."""
     import mujoco
 
     from app.export import mjcf
+    from app.simulation import SimulationGuard, checked_steps
 
     model = mjcf.load_model(graph)
     data = mujoco.MjData(model)
+    guard = SimulationGuard.for_model(
+        model,
+        graph,
+        scene_id=ctx.trace_id,
+        stage=f"solve.settle.round_{round_index + 1}",
+    )
     mujoco.mj_resetData(model, data)
-    for _ in range(round(ctx.settings.settle_seconds / model.opt.timestep)):
-        mujoco.mj_step(model, data)
+    checked_steps(
+        mujoco,
+        model,
+        data,
+        guard,
+        round(ctx.settings.settle_seconds / model.opt.timestep),
+    )
     mujoco.mj_forward(model, data)
 
     settled = {}
@@ -583,7 +596,18 @@ def run(
 
         moved = float(np.max(np.abs(result.x - before)))
         # Physics feedback for the next round: settle and see what slid.
-        settled = _settle(ctx, working)
+        try:
+            settled = _settle(ctx, working, round_index)
+        except SimulationDiverged:
+            # A numerically rejected state is not a settled pose and must never be
+            # fed back as if it were one.  Keep the reconstructed scene inspectable;
+            # certification will record the same checked simulation as NOT_RUN with
+            # the scene/stage/object diagnostic instead of the job disappearing.
+            settled = {}
+            converged = moved < ROUND_TOLERANCE_M
+            is_settled = False
+            max_drift = max(max_drift, ROUND_TOLERANCE_M)
+            break
         drift = max(
             (
                 float(np.linalg.norm(np.asarray(o.position_m) - settled[o.object_id]))

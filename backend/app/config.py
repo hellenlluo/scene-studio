@@ -207,9 +207,20 @@ class Settings(BaseSettings):
 
     # --- certification thresholds ---
     # Stability axis.
-    settle_seconds: float = 2.0
+    # Two seconds remains the minimum observation window, so an object cannot be
+    # declared settled just because every velocity starts at zero.  A scene which
+    # is still moving then gets extra time to come to rest, up to the timeout.
+    settle_seconds: float = Field(default=2.0, gt=0.0)
+    max_settle_seconds: float = Field(default=5.0, gt=0.0)
+    settle_quiet_seconds: float = Field(default=0.5, gt=0.0)
     max_com_displacement_m: float = 0.01
     max_orientation_drift_deg: float = 2.0
+    # Rates are estimated from pose change across `settle_quiet_seconds`, not raw
+    # qvel. At these rates an object would consume its corresponding pose budget in
+    # about two seconds, while alternating sub-millimetre contact vibration cancels
+    # inside the window instead of producing a false failure every 2 ms step.
+    max_linear_speed_m_s: float = Field(default=0.005, ge=0.0)
+    max_angular_speed_deg_s: float = Field(default=1.0, ge=0.0)
 
     # Non-zero because mesh
     # discretisation produces sub-millimetre contacts on surfaces flush by
@@ -341,8 +352,12 @@ class Settings(BaseSettings):
         return {
             **self.support_settings(),
             "settle_seconds": self.settle_seconds,
+            "max_settle_seconds": self.max_settle_seconds,
+            "settle_quiet_seconds": self.settle_quiet_seconds,
             "max_com_displacement_m": self.max_com_displacement_m,
             "max_orientation_drift_deg": self.max_orientation_drift_deg,
+            "max_linear_speed_m_s": self.max_linear_speed_m_s,
+            "max_angular_speed_deg_s": self.max_angular_speed_deg_s,
             "max_penetration_m": self.max_penetration_m,
             "max_support_gap_m": self.max_support_gap_m,
             "max_prior_deviation_sigma": self.max_prior_deviation_sigma,

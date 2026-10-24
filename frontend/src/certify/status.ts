@@ -120,6 +120,8 @@ export function reasonsFor(
   const penetrationLimit = certificate.penetration_tolerance_m ?? 0.002;
   const displacementLimit = certificate.com_displacement_tolerance_m ?? 0.01;
   const driftLimit = certificate.orientation_drift_tolerance_deg ?? 2;
+  const linearSpeedLimit = certificate.linear_speed_tolerance_m_s ?? 0.005;
+  const angularSpeedLimit = certificate.angular_speed_tolerance_deg_s ?? 1;
   // Each of these is the threshold the *server* judged that measurement against.
   // Reusing one for another is how a passing measurement gets reported as a
   // failure: every scale check used to be tested against `penetrationLimit`,
@@ -147,12 +149,17 @@ export function reasonsFor(
     if (worst > sigmaLimit) {
       reasons.push(`${worst.toFixed(1)}σ from its class prior (tolerance ${sigmaLimit}σ)`);
     }
-    if (!check.base_inside_parent) reasons.push("base is not over its support");
+    if (!check.base_inside_parent && !check.contact_constrained)
+      reasons.push("base is not over its support");
   }
 
   for (const check of certificate.balance ?? []) {
     if (check.object_id !== objectId || check.passed) continue;
-    if (check.failure_kind === "intrinsic_imbalance") {
+    if (check.failure_kind === "contact_wrench_infeasible") {
+      reasons.push(
+        `cannot balance gravity with its ${check.wrench_contacts?.length ?? 0} measured 3D contacts`,
+      );
+    } else if (check.failure_kind === "intrinsic_imbalance") {
       reasons.push(
         `centre of mass lies ${mm(Math.max(0, -check.full_base_margin_m))} outside its complete base; sliding cannot fix it`,
       );
@@ -207,6 +214,19 @@ export function reasonsFor(
       reasons.push(
         `tips ${check.orientation_drift_deg.toFixed(1)}° while settling ` +
           `(tolerance ${driftLimit.toFixed(1)}°)`,
+      );
+    }
+    if (check.settled === false) {
+      const linearSpeed = check.terminal_linear_speed_m_s ?? 0;
+      const angularSpeed = check.terminal_angular_speed_deg_s ?? 0;
+      const timeout = certificate.settle_timeout_seconds ?? check.simulation_time_s ?? 0;
+      const quietTime = certificate.settle_quiet_seconds ?? 0.5;
+      reasons.push(
+        `does not come to rest within ${timeout.toFixed(1)} s: filtered COM rate ` +
+          `${(linearSpeed * 1000).toFixed(1)} mm/s and tilt rate ` +
+          `${angularSpeed.toFixed(1)}°/s ` +
+          `(needs ≤${(linearSpeedLimit * 1000).toFixed(1)} mm/s and ` +
+          `≤${angularSpeedLimit.toFixed(1)}°/s continuously for ${quietTime.toFixed(1)} s)`,
       );
     }
   }

@@ -1,24 +1,26 @@
-"""Static balance certification from contact-force feasibility.
+"""Static balance certification from general contact-wrench feasibility.
 
 This is intentionally a certificate axis before it is a solver term.  A photograph
 of an ordinary indoor scene is evidence that its objects can be held at rest, but
 the old physics residual answered a different question: where MuJoCo moved them
 after release.  Here the observed pose itself is tested.
 
-The contact representation currently records upward support samples in XY, not
-arbitrary 3-D contact normals.  Under that honest scope, equilibrium under gravity
-reduces to finding nonnegative normal forces whose resultant passes through the
-centre of mass.  For contact points ``p_i`` and normal-force fractions ``n_i``:
+Current certificates read arbitrary 3-D contact normals and MuJoCo friction from
+the same collision model used by dynamic settling. The earlier horizontal test is
+still computed because its signed footprint margin is useful for visualization and
+repair, but a basket wall or leaning contact can now provide a valid wrench even
+when the COM is outside that XY patch.
+
+For controlled benchmarks and legacy evidence, the horizontal problem remains:
 
     sum(n_i) = 1
     sum(n_i * (p_i.x - com.x)) = 0
     sum(n_i * (p_i.y - com.y)) = 0
     n_i >= 0
 
-This small linear feasibility problem is the horizontal-contact form of contact-
-wrench equilibrium.  Absolute mass cancels, so this axis makes no unsupported
-claim to infer mass or friction.  The signed support margin is also reported:
-positive inside the contact hull, negative outside, and zero on its boundary.
+The general problem additionally balances all three force and torque components
+using a polyhedral friction cone. Absolute mass still cancels for each rigid body;
+friction is the explicit MJCF assumption, not a property inferred from the image.
 """
 
 from dataclasses import dataclass
@@ -27,9 +29,17 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull, QhullError
 
-from app.geometry import world_aabb, world_center_of_mass
+from app.geometry import dependents, world_aabb, world_center_of_mass
 from app.pipeline.support import SupportHeights
-from app.schemas import BalanceCheck, BalanceFailureKind, SceneGraph, SceneObject
+from app.schemas import (
+    BalanceCheck,
+    BalanceFailureKind,
+    SceneGraph,
+    SceneObject,
+    WrenchContactEvidence,
+)
+
+from . import contact_wrench
 
 __all__ = ["run"]
 
@@ -187,7 +197,14 @@ def run(
     graph: SceneGraph,
     supports: SupportHeights,
     contact_tolerance_m: float,
+    *,
+    use_3d_contacts: bool = True,
 ) -> list[BalanceCheck]:
+    wrench_by_object = (
+        contact_wrench.contacts_by_object(graph, contact_tolerance_m)
+        if use_3d_contacts
+        else {}
+    )
     checks: list[BalanceCheck] = []
     for obj in graph.objects:
         centre_m = world_center_of_mass(obj)
@@ -200,9 +217,43 @@ def run(
         base_points = base_evidence[:, :2]
         base_hull, base_feasible, base_margin, base_hull_exists = _evaluate(base_points, centre_xy)
 
-        passed = feasible and margin >= -_NUMERICAL_MARGIN_M
+        # Per-object equilibrium follows the support hierarchy: a child may load a
+        # parent, but that child cannot be treated as the thing holding its parent
+        # up. Including the equal-and-opposite basket/book wall contact on both
+        # bodies made the contained book pass correctly and the basket fail on the
+        # same contact. Child loads are validated in their own check; the parent is
+        # tested against its parent/world contacts here.
+        children = dependents(graph.objects, obj.object_id)
+        wrench_contacts = [
+            contact
+            for contact in wrench_by_object.get(obj.object_id, [])
+            if contact.other_object_id not in children
+        ]
+        non_horizontal_count = sum(
+            contact_wrench.is_non_horizontal(contact) for contact in wrench_contacts
+        )
+        # The dense underside sampler is the exact and better-conditioned special
+        # case for purely horizontal support. Invoke the general wrench LP when the
+        # scene actually contains information that the 2-D model cannot express.
+        use_wrench = use_3d_contacts and non_horizontal_count > 0
+        wrench_feasible = (
+            contact_wrench.is_feasible(obj, wrench_contacts, centre_m)
+            if use_wrench
+            else False
+        )
+
+        passed = (
+            wrench_feasible
+            if use_wrench
+            else feasible and margin >= -_NUMERICAL_MARGIN_M
+        )
         if passed:
             failure_kind = BalanceFailureKind.NONE
+        elif use_wrench and non_horizontal_count:
+            # A genuinely 3-D contact set was considered and could not balance all
+            # force and torque components. A 2-D slide/COM repair has no justified
+            # direction here, so keep this distinct from the flat-support cases.
+            failure_kind = BalanceFailureKind.CONTACT_WRENCH_INFEASIBLE
         elif not base_hull_exists:
             failure_kind = BalanceFailureKind.INSUFFICIENT_GEOMETRY
         elif not base_feasible or base_margin < -_NUMERICAL_MARGIN_M:
@@ -233,7 +284,22 @@ def run(
                 full_base_polygon_xy_m=[(float(point[0]), float(point[1])) for point in base_hull],
                 evidence_source=evidence.source,
                 resting_on=evidence.resting_on,
-                contact_force_feasible=feasible,
+                contact_force_feasible=passed,
+                equilibrium_model=(
+                    "contact_wrench_3d" if use_wrench else "horizontal_support_2d"
+                ),
+                wrench_contacts=[
+                    WrenchContactEvidence(
+                        position_m=contact.position_m,
+                        normal_m=contact.normal_m,
+                        other_object_id=contact.other_object_id,
+                        friction=contact.friction,
+                        dimensions=contact.dimensions,
+                        distance_m=contact.distance_m,
+                    )
+                    for contact in wrench_contacts
+                ],
+                non_horizontal_contact_count=non_horizontal_count,
                 support_margin_m=margin,
                 full_base_margin_m=base_margin,
                 full_base_force_feasible=base_feasible,

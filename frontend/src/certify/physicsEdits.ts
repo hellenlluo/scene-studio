@@ -51,3 +51,39 @@ export function physicsPoseEdits(
   }
   return edits;
 }
+
+/** Preserve non-pose draft fields and replace draft poses with the paused result.
+ *
+ * Physics reports every root pose, including an edited object which happened to
+ * return exactly to its committed pose. Removing the draft pose before merging is
+ * important in that case: spreading only the non-empty physics delta over it would
+ * accidentally re-commit the pre-simulation position.
+ */
+export function mergeDraftWithPhysicsEdits(
+  objects: SceneObject[],
+  poses: Map<string, Pose>,
+  drafts: ObjectEdit[],
+): ObjectEdit[] {
+  const merged = new Map<string, ObjectEdit>();
+  for (const draft of drafts) {
+    if (!poses.has(draft.object_id)) {
+      merged.set(draft.object_id, { ...draft });
+      continue;
+    }
+    const nonPose: ObjectEdit = { object_id: draft.object_id };
+    if (draft.scale !== undefined) nonPose.scale = draft.scale;
+    if (draft.mass_kg !== undefined) nonPose.mass_kg = draft.mass_kg;
+    if (draft.supported_by !== undefined) {
+      nonPose.supported_by = draft.supported_by;
+    }
+    if (Object.keys(nonPose).length > 1) merged.set(draft.object_id, nonPose);
+  }
+
+  for (const poseEdit of physicsPoseEdits(objects, poses)) {
+    merged.set(poseEdit.object_id, {
+      ...merged.get(poseEdit.object_id),
+      ...poseEdit,
+    });
+  }
+  return [...merged.values()];
+}

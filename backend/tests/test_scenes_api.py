@@ -7,6 +7,7 @@ reconstruction costs minutes and paid API calls per test.
 """
 
 import re
+from xml.etree import ElementTree as ET
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,6 +188,58 @@ def test_physics_bundle_follows_a_repair():
 
 def test_physics_bundle_404s_for_an_unknown_scene():
     assert client.get("/api/scenes/nope/physics").status_code == 404
+
+
+def test_physics_preview_applies_edits_without_persisting_them():
+    stored_before = client.get(f"/api/scenes/{SOUND}").json()
+    mug_before = next(
+        obj for obj in stored_before["spec"]["graph"]["objects"] if obj["object_id"] == "mug"
+    )
+    target = [mug_before["position_m"][0] + 0.2, *mug_before["position_m"][1:]]
+
+    response = client.post(
+        f"/api/scenes/{SOUND}/physics/preview",
+        json={
+            "objects": [
+                {
+                    "object_id": "mug",
+                    "position_m": target,
+                    "scale": 1.25,
+                    "mass_kg": 3.25,
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    root = ET.fromstring(response.json()["mjcf"])
+    body = root.find(".//body[@name='mug/body']")
+    assert body is not None
+    assert [float(value) for value in body.attrib["pos"].split()] == pytest.approx(target)
+    assert float(body.find("inertial").attrib["mass"]) == pytest.approx(3.25)
+
+    # Preview is read-only: neither the graph nor its cache-busting version changes.
+    stored_after = client.get(f"/api/scenes/{SOUND}").json()
+    mug_after = next(
+        obj for obj in stored_after["spec"]["graph"]["objects"] if obj["object_id"] == "mug"
+    )
+    assert mug_after == mug_before
+    assert stored_after["updated_at"] == stored_before["updated_at"]
+
+
+def test_physics_preview_rejects_unknown_references():
+    for payload in (
+        {"objects": [{"object_id": "ghost", "scale": 1.1}]},
+        {"objects": [{"object_id": "mug", "supported_by": "ghost"}]},
+    ):
+        assert (
+            client.post(f"/api/scenes/{SOUND}/physics/preview", json=payload).status_code
+            == 422
+        )
+
+
+def test_physics_preview_404s_for_an_unknown_scene():
+    response = client.post("/api/scenes/nope/physics/preview", json={"objects": []})
+    assert response.status_code == 404
 
 
 # --- committing an edit --------------------------------------------------------

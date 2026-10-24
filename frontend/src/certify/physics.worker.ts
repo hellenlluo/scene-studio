@@ -20,6 +20,8 @@
  */
 import loadMuJoCo, { type MainModule, type MjData, type MjModel } from '@mujoco/mujoco'
 
+import { quaternionTiltDeg } from './motion'
+
 /** Bodies are named `{object_id}/{part_id}` by `mjcf.body_name`. */
 const objectOf = (bodyName: string) => bodyName.split('/')[0]
 
@@ -30,6 +32,8 @@ export interface StartMessage {
   meshes: Record<string, ArrayBuffer>
   /** Simulated seconds between pose reports. Coarser than the timestep. */
   reportInterval: number
+  maxDisplacementM: number
+  maxTiltDeg: number
 }
 
 export type Command =
@@ -46,9 +50,15 @@ export interface Pose {
   quaternion: [number, number, number, number]
 }
 
+export interface PhysicsViolation {
+  objectId: string
+  displacementM: number
+  tiltDeg: number
+}
+
 export type Event =
   | { type: 'ready'; bodies: number; meshes: number }
-  | { type: 'poses'; time: number; poses: Pose[] }
+  | { type: 'poses'; time: number; poses: Pose[]; violations: PhysicsViolation[] }
   /**
    * The scene diverged and MuJoCo threw the state away.
    *
@@ -71,6 +81,34 @@ let roots: { objectId: string; bodyId: number }[] = []
 let running = false
 /** Simulated time at the previous report, to catch MuJoCo resetting itself. */
 let lastTime = 0
+let initial = new Map<string, Pose>()
+let initialCom = new Map<string, [number, number, number]>()
+let maximumMotion = new Map<string, PhysicsViolation>()
+let limits = { displacementM: 0.01, tiltDeg: 2 }
+
+function poseOf(objectId: string, bodyId: number): Pose {
+  if (!data) throw new Error('MuJoCo data is not ready')
+  const body = data.body(bodyId)
+  const p = body.xpos as ArrayLike<number>
+  const q = body.xquat as ArrayLike<number>
+  return {
+    objectId,
+    position: [p[0], p[1], p[2]],
+    quaternion: [q[0], q[1], q[2], q[3]],
+  }
+}
+
+function captureInitial() {
+  initial = new Map(roots.map(({ objectId, bodyId }) => [objectId, poseOf(objectId, bodyId)]))
+  initialCom = new Map(
+    roots.map(({ objectId, bodyId }) => {
+      if (!data) throw new Error('MuJoCo data is not ready')
+      const com = data.body(bodyId).subtree_com as ArrayLike<number>
+      return [objectId, [com[0], com[1], com[2]]]
+    }),
+  )
+  maximumMotion = new Map()
+}
 
 async function boot(message: StartMessage) {
   // One module for the worker's lifetime. Re-initialising for every scene would
@@ -91,6 +129,10 @@ async function boot(message: StartMessage) {
   // assets)` — same overload family, same one MJCF.
   model = mujoco.MjModel.from_xml_path('/scene.xml')
   data = new mujoco.MjData(model)
+  limits = {
+    displacementM: message.maxDisplacementM,
+    tiltDeg: message.maxTiltDeg,
+  }
 
   // Root bodies only: a part's body moves with its parent, and reporting every
   // part would send the viewer transforms it already composes itself.
@@ -105,6 +147,9 @@ async function boot(message: StartMessage) {
     roots.push({ objectId, bodyId: id })
   }
 
+  mujoco.mj_forward(model, data)
+  captureInitial()
+
   postMessage({
     type: 'ready',
     bodies: roots.length,
@@ -115,21 +160,39 @@ async function boot(message: StartMessage) {
 function report() {
   if (!model || !data) return
   const current = data
+  const poses = roots.map(({ objectId, bodyId }) => poseOf(objectId, bodyId))
+  for (let index = 0; index < poses.length; index += 1) {
+    const pose = poses[index]
+    const start = initial.get(pose.objectId)
+    const startCom = initialCom.get(pose.objectId)
+    if (!start || !startCom) continue
+    // Match the backend certificate exactly: it measures subtree COM motion, not
+    // root-body-origin motion. Those points separate when an off-centre object
+    // rotates, and comparing different points can invent a frontend/backend
+    // disagreement even when both MuJoCo builds produced the same trajectory.
+    const com = current.body(roots[index].bodyId).subtree_com as ArrayLike<number>
+    const displacementM = Math.hypot(
+      com[0] - startCom[0],
+      com[1] - startCom[1],
+      com[2] - startCom[2],
+    )
+    const tiltDeg = quaternionTiltDeg(start.quaternion, pose.quaternion)
+    const previous = maximumMotion.get(pose.objectId)
+    maximumMotion.set(pose.objectId, {
+      objectId: pose.objectId,
+      displacementM: Math.max(previous?.displacementM ?? 0, displacementM),
+      tiltDeg: Math.max(previous?.tiltDeg ?? 0, tiltDeg),
+    })
+  }
   postMessage({
     type: 'poses',
     time: Number(current.time),
-    poses: roots.map(({ objectId, bodyId }) => {
-      // The per-body accessor rather than indexing the flat arrays: same numbers,
-      // and it cannot be off by a stride.
-      const body = current.body(bodyId)
-      const p = body.xpos as ArrayLike<number>
-      const q = body.xquat as ArrayLike<number>
-      return {
-        objectId,
-        position: [p[0], p[1], p[2]] as [number, number, number],
-        quaternion: [q[0], q[1], q[2], q[3]] as [number, number, number, number],
-      }
-    }),
+    poses,
+    violations: [...maximumMotion.values()].filter(
+      (motion) =>
+        motion.displacementM > limits.displacementM ||
+        motion.tiltDeg > limits.tiltDeg,
+    ),
   } satisfies Event)
 }
 
@@ -184,6 +247,7 @@ self.onmessage = async (event: MessageEvent<Command>) => {
     } else if (command.type === 'reset') {
       mujoco.mj_resetData(model, data)
       mujoco.mj_forward(model, data)
+      captureInitial()
       lastTime = 0
       running = true
       report()

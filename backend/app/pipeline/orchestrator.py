@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from app import simulation
 from app.certify import certify, repair
 from app.export import gltf, mjcf
 from app.pipeline import (
@@ -199,7 +200,7 @@ def run_pipeline(
             weights,
             anchors,
             ctx.settings.support_settings(),
-            source_fingerprint(solve, support, penetration),
+            source_fingerprint(solve, support, penetration, simulation),
         ),
         report,
     )
@@ -215,7 +216,7 @@ def run_pipeline(
         (
             graph,
             ctx.settings.certification_thresholds(),
-            source_fingerprint(certify, support, penetration),
+            source_fingerprint(certify, support, penetration, simulation),
         ),
         report,
     )

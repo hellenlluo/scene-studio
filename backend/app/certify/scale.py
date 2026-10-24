@@ -102,6 +102,7 @@ def run(
     max_support_gap_m: float,
     max_penetration_m: float,
     supports: SupportHeights | None = None,
+    contact_constrained_ids: set[str] | None = None,
 ) -> list[ScaleCheck]:
     """Per-object scale and support checks.
 
@@ -113,6 +114,7 @@ def run(
     fixtures still work without geometry on disk, and it degrades to the box.
     """
     bounds = {obj.object_id: world_aabb(obj) for obj in graph.objects}
+    contact_constrained_ids = contact_constrained_ids or set()
 
     checks: list[ScaleCheck] = []
     for obj in graph.objects:
@@ -190,18 +192,20 @@ def run(
             )
             touching = True
 
+        contact_constrained = obj.object_id in contact_constrained_ids
         checks.append(
             ScaleCheck(
                 object_id=obj.object_id,
                 deviation_sigma=deviation,
                 support_gap_m=gap,
                 base_inside_parent=inside,
+                contact_constrained=contact_constrained,
                 touching_parent=touching,
                 resting_on=resting_on,
                 passed=(
                     all(abs(d) <= max_deviation_sigma for d in deviation)
                     and gap_ok(gap, max_support_gap_m, max_penetration_m)
-                    and inside
+                    and (inside or contact_constrained)
                     and touching
                 ),
             )

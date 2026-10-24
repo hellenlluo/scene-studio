@@ -19,6 +19,7 @@ const queryClient = new QueryClient();
 function SceneStudio() {
   const sceneId = useSceneStore((s) => s.sceneId);
   const setSceneId = useSceneStore((s) => s.setSceneId);
+  const edits = useSceneStore((s) => s.edits);
 
   const scenes = useQuery({ queryKey: ["scenes"], queryFn: api.listScenes });
   const scene = useQuery({
@@ -37,7 +38,13 @@ function SceneStudio() {
   // control is in the certificate panel, next to Repair, and the poses drive meshes
   // inside the Viewer. Keyed on `updated_at` as well as the id, so a repair — which
   // rewrites the graph — tears the worker down rather than stepping a stale model.
-  const physics = usePhysics(sceneId, scene.data?.updated_at);
+  const physics = usePhysics(
+    sceneId,
+    scene.data?.updated_at,
+    scene.data?.spec.certificate.com_displacement_tolerance_m,
+    scene.data?.spec.certificate.orientation_drift_tolerance_deg,
+    edits,
+  );
 
   // Open the first scene once the list arrives, so there is something on screen
   // without a click.
@@ -64,12 +71,15 @@ function SceneStudio() {
             )}
             {scenes.data?.length === 0 && (
               <div className="viewer-empty">
-                no scenes yet — run{" "}
-                <code>uv run python -m app.seed &lt;image&gt;</code>
+                no scenes yet — upload a photo from the Scenes panel
               </div>
             )}
             {scene.data && (
-              <Viewer envelope={scene.data} poses={physics.poses} />
+              <Viewer
+                envelope={scene.data}
+                poses={physics.poses}
+                physicsActive={physics.state !== "idle"}
+              />
             )}
           </div>
         </div>

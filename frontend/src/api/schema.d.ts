@@ -132,6 +132,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scenes/{scene_id}/physics/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Scene Physics
+         * @description Build MuJoCo input from pending edits without mutating the scene.
+         *
+         *     There is deliberately no solve or repair here. The preview answers what gravity
+         *     does to the exact draft the user sees; committing remains the operation which
+         *     re-derives supports, solves, certifies, and optionally repairs.
+         */
+        post: operations["preview_scene_physics_api_scenes__scene_id__physics_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scenes/{scene_id}/repair": {
         parameters: {
             query?: never;
@@ -238,10 +262,9 @@ export interface components {
          * BalanceCheck
          * @description Whether the observed pose admits static equilibrium under gravity.
          *
-         *     The current contact model contains horizontal support samples, so this is the
-         *     normal-force form of contact-wrench feasibility.  It deliberately does not
-         *     claim friction or mass inference; those need general 3-D contact normals or
-         *     external-force evidence.
+         *     New certificates use the initial MuJoCo contacts and a polyhedral 3-D friction
+         *     cone. The horizontal support polygon remains as an interpretable diagnostic and
+         *     repair signal, but it is not the verdict for leaning or contained objects.
          */
         BalanceCheck: {
             /** Object Id */
@@ -301,6 +324,23 @@ export interface components {
             /** Contact Force Feasible */
             contact_force_feasible: boolean;
             /**
+             * Equilibrium Model
+             * @description contact_wrench_3d for current certificates; horizontal_support_2d for legacy or controlled benchmark results.
+             * @default horizontal_support_2d
+             */
+            equilibrium_model: string;
+            /**
+             * Wrench Contacts
+             * @description Actual initial MuJoCo contacts used by the 3-D equilibrium LP.
+             */
+            wrench_contacts?: components["schemas"]["WrenchContactEvidence"][];
+            /**
+             * Non Horizontal Contact Count
+             * @description Contacts whose normal is more than 30 degrees from world vertical.
+             * @default 0
+             */
+            non_horizontal_contact_count: number;
+            /**
              * Support Margin M
              * @description Signed XY distance from COM to the contact hull boundary. Positive is inside, negative is outside, zero is marginal.
              */
@@ -337,7 +377,7 @@ export interface components {
          *     rigid translation moves its centre of mass and its own feet together.
          * @enum {string}
          */
-        BalanceFailureKind: "none" | "partial_support" | "intrinsic_imbalance" | "no_contact" | "insufficient_geometry";
+        BalanceFailureKind: "none" | "partial_support" | "intrinsic_imbalance" | "no_contact" | "insufficient_geometry" | "contact_wrench_infeasible";
         /** Body_create_job_api_jobs_post */
         Body_create_job_api_jobs_post: {
             /** Image */
@@ -488,12 +528,42 @@ export interface components {
             prior_deviation_tolerance_sigma: number;
             /**
              * Orientation Drift Tolerance Deg
-             * @description From Settings.max_orientation_drift_deg.
+             * @description From Settings.max_orientation_drift_deg. This is a gravity-relative tilt limit; yaw around world-up is deliberately excluded.
              *
-             *     All five thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
+             *     All thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
              * @default 2
              */
             orientation_drift_tolerance_deg: number;
+            /**
+             * Linear Speed Tolerance M S
+             * @description From Settings.max_linear_speed_m_s. Applied to the COM rate over the filtered pose window rather than instantaneous solver velocity.
+             * @default 0.005
+             */
+            linear_speed_tolerance_m_s: number;
+            /**
+             * Angular Speed Tolerance Deg S
+             * @description From Settings.max_angular_speed_deg_s. Applied to filtered gravity-relative tilt rate, with world-up yaw ignored.
+             * @default 1
+             */
+            angular_speed_tolerance_deg_s: number;
+            /**
+             * Settle Minimum Seconds
+             * @description Minimum simulation duration before stability may finish early.
+             * @default 2
+             */
+            settle_minimum_seconds: number;
+            /**
+             * Settle Timeout Seconds
+             * @description Maximum simulation duration when the scene does not become quiet.
+             * @default 5
+             */
+            settle_timeout_seconds: number;
+            /**
+             * Settle Quiet Seconds
+             * @description Required continuous time below both speed tolerances.
+             * @default 0.5
+             */
+            settle_quiet_seconds: number;
         };
         /** CostCheck */
         CostCheck: {
@@ -902,6 +972,19 @@ export interface components {
             };
         };
         /**
+         * PhysicsPreviewRequest
+         * @description Uncommitted object edits to apply to an ephemeral MuJoCo scene.
+         *
+         *     The graph is cloned and never solved, certified, exported, or stored. This is
+         *     intentionally narrower than ``SceneEditRequest``: anchors and repair choices
+         *     have no meaning when the user is asking "what happens if I release exactly
+         *     what is on screen?"
+         */
+        PhysicsPreviewRequest: {
+            /** Objects */
+            objects?: components["schemas"]["ObjectEdit"][];
+        };
+        /**
          * Provenance
          * @description Where a value came from. Reported per field.
          *
@@ -1067,6 +1150,12 @@ export interface components {
              * @default true
              */
             base_inside_parent: boolean;
+            /**
+             * Contact Constrained
+             * @description Whether a feasible non-horizontal contact with the declared parent makes horizontal base containment inapplicable (for example an object leaning against the inside wall of a container).
+             * @default false
+             */
+            contact_constrained: boolean;
             /**
              * Passed
              * @default true
@@ -1459,9 +1548,15 @@ export interface components {
         StabilityCheck: {
             /** Object Id */
             object_id: string;
-            /** Com Displacement M */
+            /**
+             * Com Displacement M
+             * @description Maximum COM displacement observed anywhere in the settling window.
+             */
             com_displacement_m: number;
-            /** Orientation Drift Deg */
+            /**
+             * Orientation Drift Deg
+             * @description Maximum gravity-relative tilt observed anywhere in the settling window. Rotation around world-up is ignored because yaw does not make an object tip.
+             */
             orientation_drift_deg: number;
             /**
              * Initial Penetration M
@@ -1475,6 +1570,36 @@ export interface components {
              *     Recorded because the depth alone does not say what to do about it. Sunk into the ground and interpenetrating a neighbour are different reconstruction errors with different fixes, and a reader told only "overlaps another object" will go looking through the object list for a collision that is with the floor.
              */
             penetration_against?: string | null;
+            /**
+             * Terminal Linear Speed M S
+             * @description COM translation rate estimated from pose change across the final filtered settling window, not instantaneous MuJoCo qvel.
+             * @default 0
+             */
+            terminal_linear_speed_m_s: number;
+            /**
+             * Terminal Angular Speed Deg S
+             * @description Gravity-relative tilt rate estimated across the final filtered settling window. World-up yaw is ignored.
+             * @default 0
+             */
+            terminal_angular_speed_deg_s: number;
+            /**
+             * Quiet Duration S
+             * @description Continuous time immediately before the end of the simulation during which both filtered pose-rate limits held.
+             * @default 0
+             */
+            quiet_duration_s: number;
+            /**
+             * Simulation Time S
+             * @description How long MuJoCo was stepped before this result was recorded.
+             * @default 0
+             */
+            simulation_time_s: number;
+            /**
+             * Settled
+             * @description Whether both speed limits held continuously for the required quiet interval. Legacy checks default to true because they did not record velocity evidence.
+             * @default true
+             */
+            settled: boolean;
             /** Passed */
             passed: boolean;
         };
@@ -1506,6 +1631,54 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WrenchContactEvidence
+         * @description One initial MuJoCo contact used by the general equilibrium check.
+         */
+        WrenchContactEvidence: {
+            /** Position M */
+            position_m: [
+                number,
+                number,
+                number
+            ];
+            /**
+             * Normal M
+             * @description Unit normal force direction acting into the inspected object.
+             */
+            normal_m: [
+                number,
+                number,
+                number
+            ];
+            /**
+             * Other Object Id
+             * @description Object on the other side, or None for the static world.
+             */
+            other_object_id?: string | null;
+            /**
+             * Friction
+             * @description MuJoCo sliding-1, sliding-2, torsional, rolling-1 and rolling-2 friction coefficients used by the wrench cone.
+             */
+            friction: [
+                number,
+                number,
+                number,
+                number,
+                number
+            ];
+            /**
+             * Dimensions
+             * @description Active MuJoCo contact dimension: 1, 3, 4, or 6. Torsional friction requires at least 4 and rolling friction requires 6.
+             * @default 3
+             */
+            dimensions: number;
+            /**
+             * Distance M
+             * @description Signed MuJoCo contact distance; negative values are penetration.
+             */
+            distance_m: number;
         };
     };
     responses: never;
@@ -1676,6 +1849,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhysicsBundle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_scene_physics_api_scenes__scene_id__physics_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhysicsPreviewRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

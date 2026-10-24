@@ -856,13 +856,25 @@ class ScaleCheck(BaseModel):
         "scene looks right and certifies wrong.",
     )
     base_inside_parent: bool = True
+    contact_constrained: bool = Field(
+        default=False,
+        description="Whether a feasible non-horizontal contact with the declared "
+        "parent makes horizontal base containment inapplicable (for example an "
+        "object leaning against the inside wall of a container).",
+    )
     passed: bool = True
 
 
 class StabilityCheck(BaseModel):
     object_id: str
-    com_displacement_m: float
-    orientation_drift_deg: float
+    com_displacement_m: float = Field(
+        description="Maximum COM displacement observed anywhere in the settling window."
+    )
+    orientation_drift_deg: float = Field(
+        description="Maximum gravity-relative tilt observed anywhere in the settling "
+        "window. Rotation around world-up is ignored because yaw does not make an "
+        "object tip."
+    )
     initial_penetration_m: float = Field(
         description="Measured at t=0. Once the solver starts pushing bodies apart the "
         "overlap is gone and the reconstruction error that caused it is unobservable."
@@ -876,6 +888,31 @@ class StabilityCheck(BaseModel):
         "reconstruction errors with different fixes, and a reader told only "
         '"overlaps another object" will go looking through the object list for a '
         "collision that is with the floor.",
+    )
+    terminal_linear_speed_m_s: float = Field(
+        default=0.0,
+        description="COM translation rate estimated from pose change across the final "
+        "filtered settling window, not instantaneous MuJoCo qvel.",
+    )
+    terminal_angular_speed_deg_s: float = Field(
+        default=0.0,
+        description="Gravity-relative tilt rate estimated across the final filtered "
+        "settling window. World-up yaw is ignored.",
+    )
+    quiet_duration_s: float = Field(
+        default=0.0,
+        description="Continuous time immediately before the end of the simulation "
+        "during which both filtered pose-rate limits held.",
+    )
+    simulation_time_s: float = Field(
+        default=0.0,
+        description="How long MuJoCo was stepped before this result was recorded.",
+    )
+    settled: bool = Field(
+        default=True,
+        description="Whether both speed limits held continuously for the required "
+        "quiet interval. Legacy checks default to true because they did not record "
+        "velocity evidence.",
     )
     passed: bool
 
@@ -901,15 +938,39 @@ class BalanceFailureKind(StrEnum):
     INTRINSIC_IMBALANCE = "intrinsic_imbalance"
     NO_CONTACT = "no_contact"
     INSUFFICIENT_GEOMETRY = "insufficient_geometry"
+    CONTACT_WRENCH_INFEASIBLE = "contact_wrench_infeasible"
+
+
+class WrenchContactEvidence(BaseModel):
+    """One initial MuJoCo contact used by the general equilibrium check."""
+
+    position_m: Vec3
+    normal_m: Vec3 = Field(
+        description="Unit normal force direction acting into the inspected object."
+    )
+    other_object_id: str | None = Field(
+        default=None, description="Object on the other side, or None for the static world."
+    )
+    friction: tuple[float, float, float, float, float] = Field(
+        description="MuJoCo sliding-1, sliding-2, torsional, rolling-1 and rolling-2 "
+        "friction coefficients used by the wrench cone."
+    )
+    dimensions: int = Field(
+        default=3,
+        description="Active MuJoCo contact dimension: 1, 3, 4, or 6. Torsional "
+        "friction requires at least 4 and rolling friction requires 6.",
+    )
+    distance_m: float = Field(
+        description="Signed MuJoCo contact distance; negative values are penetration."
+    )
 
 
 class BalanceCheck(BaseModel):
     """Whether the observed pose admits static equilibrium under gravity.
 
-    The current contact model contains horizontal support samples, so this is the
-    normal-force form of contact-wrench feasibility.  It deliberately does not
-    claim friction or mass inference; those need general 3-D contact normals or
-    external-force evidence.
+    New certificates use the initial MuJoCo contacts and a polyhedral 3-D friction
+    cone. The horizontal support polygon remains as an interpretable diagnostic and
+    repair signal, but it is not the verdict for leaning or contained objects.
     """
 
     object_id: str
@@ -942,6 +1003,19 @@ class BalanceCheck(BaseModel):
         description="Nearest measured supporting object, or None for the floor.",
     )
     contact_force_feasible: bool
+    equilibrium_model: str = Field(
+        default="horizontal_support_2d",
+        description="contact_wrench_3d for current certificates; horizontal_support_2d "
+        "for legacy or controlled benchmark results.",
+    )
+    wrench_contacts: list[WrenchContactEvidence] = Field(
+        default_factory=list,
+        description="Actual initial MuJoCo contacts used by the 3-D equilibrium LP.",
+    )
+    non_horizontal_contact_count: int = Field(
+        default=0,
+        description="Contacts whose normal is more than 30 degrees from world vertical.",
+    )
     support_margin_m: float = Field(
         description="Signed XY distance from COM to the contact hull boundary. "
         "Positive is inside, negative is outside, zero is marginal."
@@ -1043,13 +1117,36 @@ class Certificate(BaseModel):
     )
     orientation_drift_tolerance_deg: float = Field(
         default=2.0,
-        description="From Settings.max_orientation_drift_deg.\n\n"
-        "All five thresholds are on the certificate so a reader can say *which* "
+        description="From Settings.max_orientation_drift_deg. This is a gravity-relative "
+        "tilt limit; yaw around world-up is deliberately excluded.\n\n"
+        "All thresholds are on the certificate so a reader can say *which* "
         "criterion a check failed on. Without them a client has to invent its own "
         "cutoffs, and one did: a floor lamp failing on 295 mm of displacement was "
         "also reported as overlapping its neighbour, because the client tested "
         "penetration against zero and the lamp had 4.7 micrometres of contact "
         "noise — rendered, after rounding, as 'overlaps another object by 0 mm'.",
+    )
+    linear_speed_tolerance_m_s: float = Field(
+        default=0.005,
+        description="From Settings.max_linear_speed_m_s. Applied to the COM rate over "
+        "the filtered pose window rather than instantaneous solver velocity.",
+    )
+    angular_speed_tolerance_deg_s: float = Field(
+        default=1.0,
+        description="From Settings.max_angular_speed_deg_s. Applied to filtered "
+        "gravity-relative tilt rate, with world-up yaw ignored.",
+    )
+    settle_minimum_seconds: float = Field(
+        default=2.0,
+        description="Minimum simulation duration before stability may finish early.",
+    )
+    settle_timeout_seconds: float = Field(
+        default=5.0,
+        description="Maximum simulation duration when the scene does not become quiet.",
+    )
+    settle_quiet_seconds: float = Field(
+        default=0.5,
+        description="Required continuous time below both speed tolerances.",
     )
 
     @property
@@ -1218,6 +1315,18 @@ class SceneEditRequest(BaseModel):
         "stores the submitted pose exactly (used for paused browser physics), while "
         "still refreshing geometric support relationships and re-certifying it.",
     )
+
+
+class PhysicsPreviewRequest(BaseModel):
+    """Uncommitted object edits to apply to an ephemeral MuJoCo scene.
+
+    The graph is cloned and never solved, certified, exported, or stored. This is
+    intentionally narrower than ``SceneEditRequest``: anchors and repair choices
+    have no meaning when the user is asking "what happens if I release exactly
+    what is on screen?"
+    """
+
+    objects: list[ObjectEdit] = Field(default_factory=list)
 
 
 # --- v2: the amber channel ----------------------------------------------------

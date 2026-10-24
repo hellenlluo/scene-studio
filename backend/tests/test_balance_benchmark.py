@@ -163,6 +163,7 @@ def test_controlled_balance_benchmark(case: BalanceCase):
         controlled_graph(case.com_xy),
         ControlledSupports(case.contacts_xy),
         contact_tolerance_m=0.005,
+        use_3d_contacts=False,
     )[0]
 
     assert check.passed is case.expected_pass
@@ -181,6 +182,7 @@ def test_square_margin_sweep_matches_analytic_distance(com_x: float):
         controlled_graph((float(com_x), 0.0)),
         ControlledSupports(contacts),
         contact_tolerance_m=0.005,
+        use_3d_contacts=False,
     )[0]
 
     expected_margin = 0.5 - abs(float(com_x))
@@ -191,8 +193,15 @@ def test_square_margin_sweep_matches_analytic_distance(com_x: float):
 def test_balance_is_invariant_to_contact_order():
     contacts = ((-0.8, -0.4), (-0.8, 0.4), (0.8, 0.4), (0.8, -0.4))
     graph = controlled_graph((0.2, -0.1))
-    forward = balance.run(graph, ControlledSupports(contacts), 0.005)[0]
-    reverse = balance.run(graph, ControlledSupports(tuple(reversed(contacts))), 0.005)[0]
+    forward = balance.run(
+        graph, ControlledSupports(contacts), 0.005, use_3d_contacts=False
+    )[0]
+    reverse = balance.run(
+        graph,
+        ControlledSupports(tuple(reversed(contacts))),
+        0.005,
+        use_3d_contacts=False,
+    )[0]
 
     assert reverse.passed is forward.passed
     assert reverse.support_margin_m == pytest.approx(forward.support_margin_m, abs=1e-9)

@@ -14,7 +14,7 @@ import {
   uncheckedAxes,
 } from "./status";
 import { supportChangeMessage } from "./supportChanges";
-import { physicsPoseEdits } from "./physicsEdits";
+import { mergeDraftWithPhysicsEdits } from "./physicsEdits";
 
 interface Props {
   envelope: SceneEnvelope;
@@ -76,6 +76,30 @@ export function CertificatePanel({ envelope, physics }: Props) {
   const failing = failingObjectIds(certificate);
   const displayNames = objectDisplayNames(envelope.spec.graph.objects);
   const diagnostics = envelope.spec.diagnostics;
+  const liveViolations = new Map(
+    physics.violations.map((violation) => [violation.objectId, violation]),
+  );
+  const liveDisplacementLimit =
+    certificate.com_displacement_tolerance_m ?? 0.01;
+  const liveTiltLimit = certificate.orientation_drift_tolerance_deg ?? 2;
+
+  const liveViolationMessage = (violation: Physics["violations"][number]) => {
+    const measurements: string[] = [];
+    if (violation.displacementM > liveDisplacementLimit) {
+      measurements.push(
+        `movement ${(violation.displacementM * 1000).toFixed(1)} mm > ` +
+          `${(liveDisplacementLimit * 1000).toFixed(1)} mm`,
+      );
+    }
+    if (violation.tiltDeg > liveTiltLimit) {
+      measurements.push(
+        `tilt ${violation.tiltDeg.toFixed(1)}° > ` +
+          `${liveTiltLimit.toFixed(1)}°`,
+      );
+    }
+    const name = displayNames.get(violation.objectId) ?? violation.objectId;
+    return `${name} (${measurements.join(", ")})`;
+  };
 
   const edits = useSceneStore((s) => s.edits);
   const clearEdits = useSceneStore((s) => s.clearEdits);
@@ -113,7 +137,11 @@ export function CertificatePanel({ envelope, physics }: Props) {
 
   const pausedPoseEdits =
     physics.state === "paused"
-      ? physicsPoseEdits(envelope.spec.graph.objects, physics.poses)
+      ? mergeDraftWithPhysicsEdits(
+          envelope.spec.graph.objects,
+          physics.poses,
+          physics.draftEdits,
+        )
       : [];
   const commitPhysics = useMutation({
     mutationFn: () =>
@@ -123,6 +151,32 @@ export function CertificatePanel({ envelope, physics }: Props) {
         // Preserve exactly what the user approved in MuJoCo. The backend still
         // refreshes support edges and recertifies, but does not solve the pose back
         // toward the original photograph or run an automatic repair over it.
+        resolve: false,
+      }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        ["scene", result.scene.spec.scene_id],
+        result.scene,
+      );
+      queryClient.invalidateQueries({ queryKey: ["scenes"] });
+      // The preview was compiled from this exact draft and the response now
+      // contains both it and the approved MuJoCo poses. Leaving the draft in the
+      // store would immediately apply the same edits a second time and mark the
+      // freshly certified scene stale.
+      clearEdits();
+      physics.disable();
+    },
+  });
+
+  const recertify = useMutation({
+    mutationFn: () =>
+      api.editScene(envelope.spec.scene_id, {
+        objects: [],
+        anchors: [],
+        // A no-op pose commit is the pure re-certification path: the graph and
+        // anchors stay unchanged, while every certificate axis runs under the
+        // current contract. This is needed when the validator itself changes and
+        // an existing scene still carries an older stored certificate.
         resolve: false,
       }),
     onSuccess: (result) => {
@@ -189,6 +243,18 @@ export function CertificatePanel({ envelope, physics }: Props) {
           {certificate.simulator_version ?? "unknown"} · graph{" "}
           {certificate.scene_graph_sha256.slice(0, 8)}
         </p>
+      )}
+      <button
+        type="button"
+        className="physics-reset"
+        disabled={dirty || recertify.isPending}
+        onClick={() => recertify.mutate()}
+        title={dirty ? "commit or discard edits before rechecking" : undefined}
+      >
+        {recertify.isPending ? "rechecking…" : "recheck certificate"}
+      </button>
+      {recertify.error && (
+        <p className="note note--error">{String(recertify.error)}</p>
       )}
 
       {certificate.cost && (
@@ -290,22 +356,27 @@ export function CertificatePanel({ envelope, physics }: Props) {
                 ? "▶ resume physics"
                 : physics.state === "diverged"
                   ? "◼ stopped — unstable"
-                  : "▶ run physics"}
+                  : dirty
+                    ? "▶ test edits with physics"
+                    : "▶ run physics"}
         </button>
         {physics.state === "diverged" && (
           <button type="button" className="physics-reset" onClick={physics.disable}>
-            ↩ restore stored pose
+            ↩ restore {physics.usingDraft ? "edited" : "stored"} pose
           </button>
         )}
         {physics.state === "running" && (
           <>
             <button type="button" className="physics-reset" onClick={physics.reset}>
-              ↺ reset
+              ↺ reset to {physics.usingDraft ? "edits" : "start"}
             </button>
             <button type="button" className="physics-reset" onClick={physics.disable}>
-              ↩ stop &amp; restore
+              ↩ stop &amp; restore {physics.usingDraft ? "edits" : "start"}
             </button>
-            <span className="note">t = {physics.time.toFixed(2)} s</span>
+            <span className="note">
+              {physics.usingDraft ? "testing draft · " : ""}t ={" "}
+              {physics.time.toFixed(2)} s
+            </span>
           </>
         )}
         {physics.state === "paused" && (
@@ -313,9 +384,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
             <button
               type="button"
               className="physics-commit"
-              disabled={
-                commitPhysics.isPending || dirty || pausedPoseEdits.length === 0
-              }
+              disabled={commitPhysics.isPending || pausedPoseEdits.length === 0}
               onClick={() => commitPhysics.mutate()}
             >
               {commitPhysics.isPending
@@ -323,21 +392,33 @@ export function CertificatePanel({ envelope, physics }: Props) {
                 : `commit paused pose (${pausedPoseEdits.length})`}
             </button>
             <button type="button" className="physics-reset" onClick={physics.reset}>
-              ↺ reset
+              ↺ reset to {physics.usingDraft ? "edits" : "start"}
             </button>
             <button type="button" className="physics-reset" onClick={physics.disable}>
-              ↩ restore stored pose
+              ↩ restore {physics.usingDraft ? "edited" : "stored"} pose
             </button>
-            <span className="note">paused at t = {physics.time.toFixed(2)} s</span>
+            <span className="note">
+              {physics.usingDraft ? "draft " : ""}paused at t ={" "}
+              {physics.time.toFixed(2)} s
+            </span>
           </>
         )}
-        {physics.state === "paused" && dirty && (
-          <p className="note">commit or discard manual edits before saving physics</p>
+        {physics.state === "paused" && physics.usingDraft && (
+          <p className="note">
+            committing saves the draft edits and these simulated poses together
+          </p>
         )}
         {commitPhysics.error && (
           <p className="note note--error">{String(commitPhysics.error)}</p>
         )}
         {physics.error && <p className="reasons-degraded">{physics.error}</p>}
+        {physics.violations.length > 0 && (
+          <p className="note note--error">
+            live physics crossed the certificate limit: {physics.violations
+              .map(liveViolationMessage)
+              .join(", ")}
+          </p>
+        )}
       </div>
 
       {/* Two flags, not one. `converged` is about the optimiser reaching a fixed
@@ -363,7 +444,8 @@ export function CertificatePanel({ envelope, physics }: Props) {
       <ul className="objects">
         {envelope.spec.graph.objects.map((object) => {
           const display = displayNames.get(object.object_id) ?? object.object_id;
-          const failed = failing.has(object.object_id);
+          const liveViolation = liveViolations.get(object.object_id);
+          const failed = failing.has(object.object_id) || liveViolation !== undefined;
           const selected = object.object_id === selectedObjectId;
           return (
             <li key={object.object_id}>
@@ -410,6 +492,13 @@ export function CertificatePanel({ envelope, physics }: Props) {
                   {reasonsFor(object.object_id, certificate, displayNames).map((reason) => (
                     <li key={reason}>{reason}</li>
                   ))}
+                  {liveViolation && (
+                    <li>
+                      live physics reaches{" "}
+                      {(liveViolation.displacementM * 100).toFixed(1)} cm and{" "}
+                      {liveViolation.tiltDeg.toFixed(1)}° of tilt from its stored pose
+                    </li>
+                  )}
                   {!failed && <li className="reasons-ok">passes every axis</li>}
                 </ul>
               )}

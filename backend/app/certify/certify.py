@@ -32,7 +32,7 @@ from . import balance, cost, inertial, scale, stability
 __all__ = ["Certificate", "balance", "cost", "inertial", "run", "scale", "stability"]
 
 log = logging.getLogger(__name__)
-CERTIFICATE_VERSION = "1.3"
+CERTIFICATE_VERSION = "1.7"
 
 
 def _scene_graph_sha256(graph: SceneGraph) -> str:
@@ -95,10 +95,36 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
     errors: dict[str, str] = {}
     supports = None
 
-    # The same measured surfaces stage 6 solved against, so the axis grades the
-    # contact the solver was aiming at rather than a bounding-box approximation of it.
+    # Static equilibrium runs first because its 3-D contact evidence tells the scale
+    # axis when horizontal footprint containment is the wrong model. This is
+    # geometry-based rather than a category exception: a basket, shelf wall, or any
+    # future container is handled by the same non-horizontal contact criterion.
     try:
         supports = support.build(graph, settings)
+        balance_checks = balance.run(graph, supports, settings.max_support_gap_m)
+        balance_status = _status(balance_checks)
+    except Exception as exc:
+        _record_error(errors, "balance", exc)
+        balance_checks = []
+        balance_status = AxisStatus.NOT_RUN
+
+    # The same measured surfaces stage 6 solved against, so the axis grades the
+    # contact the solver was aiming at rather than a bounding-box approximation.
+    try:
+        if supports is None:
+            supports = support.build(graph, settings)
+        constrained_ids: set[str] = set()
+        by_id = {obj.object_id: obj for obj in graph.objects}
+        for check in balance_checks:
+            obj = by_id.get(check.object_id)
+            if obj is None or obj.supported_by is None or not check.passed:
+                continue
+            if any(
+                evidence.other_object_id == obj.supported_by
+                and abs(evidence.normal_m[2]) < 0.8660254037844386
+                for evidence in check.wrench_contacts
+            ):
+                constrained_ids.add(obj.object_id)
         scale_checks = scale.run(
             graph,
             settings.max_prior_deviation_sigma,
@@ -107,6 +133,7 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
             # tolerance the stability axis does. See `scale.gap_ok`.
             settings.max_penetration_m,
             supports,
+            contact_constrained_ids=constrained_ids,
         )
         scale_status = _status(scale_checks)
     except Exception as exc:
@@ -114,22 +141,8 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
         scale_checks = []
         scale_status = AxisStatus.NOT_RUN
 
-    # Static equilibrium is deliberately separate from dynamic settling.  The
-    # former asks whether the photographed pose *can* be held by its contacts; the
-    # latter asks what MuJoCo does after release.  Keeping both makes their
-    # disagreement a diagnostic instead of hiding one inside the other.
     try:
-        if supports is None:
-            supports = support.build(graph, settings)
-        balance_checks = balance.run(graph, supports, settings.max_support_gap_m)
-        balance_status = _status(balance_checks)
-    except Exception as exc:
-        _record_error(errors, "balance", exc)
-        balance_checks = []
-        balance_status = AxisStatus.NOT_RUN
-
-    try:
-        stability_checks = stability.run(graph, settings)
+        stability_checks = stability.run(graph, settings, scene_id=ctx.trace_id)
         stability_status = _status(stability_checks)
     except Exception as exc:
         _record_error(errors, "stability", exc)
@@ -145,7 +158,7 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
         inertial_status = AxisStatus.NOT_RUN
 
     try:
-        cost_check = cost.run(graph, settings.step_time_budget_ms)
+        cost_check = cost.run(graph, settings.step_time_budget_ms, scene_id=ctx.trace_id)
         cost_status = AxisStatus.PASS if cost_check.passed else AxisStatus.FAIL
     except Exception as exc:
         _record_error(errors, "cost", exc)
@@ -177,4 +190,9 @@ def run(ctx: PipelineContext, graph: SceneGraph) -> Certificate:
         support_gap_tolerance_m=settings.max_support_gap_m,
         prior_deviation_tolerance_sigma=settings.max_prior_deviation_sigma,
         orientation_drift_tolerance_deg=settings.max_orientation_drift_deg,
+        linear_speed_tolerance_m_s=settings.max_linear_speed_m_s,
+        angular_speed_tolerance_deg_s=settings.max_angular_speed_deg_s,
+        settle_minimum_seconds=settings.settle_seconds,
+        settle_timeout_seconds=settings.max_settle_seconds,
+        settle_quiet_seconds=settings.settle_quiet_seconds,
     )

@@ -5,6 +5,7 @@ import * as THREE from "three";
 import type { BalanceCheck } from "../api/client";
 
 const CONTACT_COLOUR = "#f4b942";
+const WRENCH_COLOUR = "#45c2d8";
 const COM_COLOUR = "#d66cff";
 const PASS_COLOUR = "#4caf7d";
 const FAIL_COLOUR = "#d94b4b";
@@ -75,6 +76,7 @@ function polygonGeometry(polygon: Point2[], height: number) {
 
 function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
   const contacts = (check.contact_points_m ?? []) as Point3[];
+  const wrenchContacts = check.wrench_contacts ?? [];
   const polygon = useMemo(
     () => (check.support_polygon_xy_m ?? []) as Point2[],
     [check.support_polygon_xy_m],
@@ -130,6 +132,35 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
           <meshBasicMaterial color={CONTACT_COLOUR} depthTest={false} />
         </mesh>
       ))}
+      {wrenchContacts.map((contact, index) => {
+        const point = contact.position_m as Point3;
+        const normal = contact.normal_m as Point3;
+        const end: Point3 = [
+          point[0] + normal[0] * 0.06,
+          point[1] + normal[1] * 0.06,
+          point[2] + normal[2] * 0.06,
+        ];
+        return (
+          <group key={`wrench:${point.join(":")}:${index}`}>
+            <mesh
+              position={renderPoint(point)}
+              renderOrder={25}
+              raycast={ignoreRaycast}
+            >
+              <sphereGeometry args={[0.004, 10, 8]} />
+              <meshBasicMaterial color={WRENCH_COLOUR} depthTest={false} />
+            </mesh>
+            <Line
+              points={[renderPoint(point), renderPoint(end)]}
+              color={WRENCH_COLOUR}
+              lineWidth={2}
+              depthTest={false}
+              renderOrder={25}
+              raycast={ignoreRaycast}
+            />
+          </group>
+        );
+      })}
       {hasSupport && (
         <Line
           points={[renderPoint(centre), renderPoint(projection)]}

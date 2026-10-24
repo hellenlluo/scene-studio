@@ -4,1958 +4,1858 @@
  */
 
 export interface paths {
-    "/api/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Job */
-        post: operations["create_job_api_jobs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  "/api/jobs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Job */
-        get: operations["get_job_api_jobs__job_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /** Create Job */
+    post: operations["create_job_api_jobs_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/jobs/{job_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Scenes */
-        get: operations["list_scenes_api_scenes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Job */
+    get: operations["get_job_api_jobs__job_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Scene */
-        get: operations["get_scene_api_scenes__scene_id__get"];
-        /**
-         * Edit Scene
-         * @description Apply a user edit, re-derive what it rests on, re-solve, certify and repair.
-         *
-         *     Everything is editable — pose, scale, support parent, mass. There is no wizard
-         *     and no gating, because the system does not know enough to decide what the user
-         *     is allowed to touch.
-         *
-         *     **A drag revises the scene graph, not just the pose.** Dropping a book on a
-         *     table makes the table what it rests on, and until that edge is rewritten every
-         *     later stage reads the old one — the support term closes the gap to the floor and
-         *     puts the book underneath the table it was dropped on. So the parent is
-         *     re-derived from geometry before the solve, scoped to the objects the user moved.
-         *
-         *     **The edit is a measurement, not just a seed.** `solve.run` starts from whatever
-         *     pose the graph carries, but starting there is not enough on its own: the stored
-         *     depth centre still pointed at the pre-edit position and simply pulled the object
-         *     back, keeping 0% of a one-metre drag. Properties the user has set are now what
-         *     the depth term aims at for that object — see `solve._edit_priors`. Softly, at
-         *     the depth weight, so an impossible drop is still corrected by support and
-         *     penetration. `ScaleAnchor` is still the hard constraint, for a dimension the
-         *     user has actually measured.
-         *
-         *     **Repair runs here, bounded to the edit.** It used to be refused outright,
-         *     because "an edit that silently moved objects the user did not touch would be a
-         *     surprising thing for a drag to do" — true, and it left a commit able to produce
-         *     a visibly broken scene whose fix sat behind a button. Scoping repair to the
-         *     edited objects and their dependents keeps that guarantee and still finishes the
-         *     job; `SceneEditResponse.actions` reports every correction, so nothing is silent.
-         *     The whole-scene `/repair` endpoint remains for a scene loaded without an edit.
-         *
-         *     Values the user set are marked `Provenance.USER`. `solve._edit_priors` reads it,
-         *     so it is now load-bearing rather than merely recorded — see the note there about
-         *     solve no longer stamping over it.
-         */
-        put: operations["edit_scene_api_scenes__scene_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** List Scenes */
+    get: operations["list_scenes_api_scenes_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}/physics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Scene Physics
-         * @description The MJCF and its mesh assets, for running this scene in the browser.
-         *
-         *     Built from the stored graph rather than read off disk, so it cannot disagree
-         *     with the scene the client is looking at — the exported `scene.xml` is rewritten
-         *     in place on every repair, and a client holding a stale URL would otherwise
-         *     compile the pre-repair scene.
-         */
-        get: operations["scene_physics_api_scenes__scene_id__physics_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Scene */
+    get: operations["get_scene_api_scenes__scene_id__get"];
+    /**
+     * Edit Scene
+     * @description Apply a user edit, re-derive what it rests on, re-solve, certify and repair.
+     *
+     *     Everything is editable — pose, scale, support parent, mass. There is no wizard
+     *     and no gating, because the system does not know enough to decide what the user
+     *     is allowed to touch.
+     *
+     *     **A drag revises the scene graph, not just the pose.** Dropping a book on a
+     *     table makes the table what it rests on, and until that edge is rewritten every
+     *     later stage reads the old one — the support term closes the gap to the floor and
+     *     puts the book underneath the table it was dropped on. So the parent is
+     *     re-derived from geometry before the solve, scoped to the objects the user moved.
+     *
+     *     **The edit is a measurement, not just a seed.** `solve.run` starts from whatever
+     *     pose the graph carries, but starting there is not enough on its own: the stored
+     *     depth centre still pointed at the pre-edit position and simply pulled the object
+     *     back, keeping 0% of a one-metre drag. Properties the user has set are now what
+     *     the depth term aims at for that object — see `solve._edit_priors`. Softly, at
+     *     the depth weight, so an impossible drop is still corrected by support and
+     *     penetration. `ScaleAnchor` is still the hard constraint, for a dimension the
+     *     user has actually measured.
+     *
+     *     **Repair runs here, bounded to the edit.** It used to be refused outright,
+     *     because "an edit that silently moved objects the user did not touch would be a
+     *     surprising thing for a drag to do" — true, and it left a commit able to produce
+     *     a visibly broken scene whose fix sat behind a button. Scoping repair to the
+     *     edited objects and their dependents keeps that guarantee and still finishes the
+     *     job; `SceneEditResponse.actions` reports every correction, so nothing is silent.
+     *     The whole-scene `/repair` endpoint remains for a scene loaded without an edit.
+     *
+     *     Values the user set are marked `Provenance.USER`. `solve._edit_priors` reads it,
+     *     so it is now load-bearing rather than merely recorded — see the note there about
+     *     solve no longer stamping over it.
+     */
+    put: operations["edit_scene_api_scenes__scene_id__put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}/physics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}/physics/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Preview Scene Physics
-         * @description Build MuJoCo input from pending edits without mutating the scene.
-         *
-         *     There is deliberately no solve or repair here. The preview answers what gravity
-         *     does to the exact draft the user sees; committing remains the operation which
-         *     re-derives supports, solves, certifies, and optionally repairs.
-         */
-        post: operations["preview_scene_physics_api_scenes__scene_id__physics_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /**
+     * Scene Physics
+     * @description The MJCF and its mesh assets, for running this scene in the browser.
+     *
+     *     Built from the stored graph rather than read off disk, so it cannot disagree
+     *     with the scene the client is looking at — the exported `scene.xml` is rewritten
+     *     in place on every repair, and a client holding a stale URL would otherwise
+     *     compile the pre-repair scene.
+     */
+    get: operations["scene_physics_api_scenes__scene_id__physics_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}/physics/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/scenes/{scene_id}/repair": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Repair Scene
-         * @description Re-certify, apply the minimal correction, and re-export.
-         *
-         *     Synchronous, unlike the upload path: measured at roughly 70 ms to certify plus
-         *     20 ms to repair on a small scene, which is well inside a request. If scenes get
-         *     big enough that this stops being true it should move behind the job queue that
-         *     already exists rather than growing a timeout.
-         *
-         *     Both exports are regenerated because they are pure functions of the graph, and
-         *     a repaired scene whose MJCF still described the broken one would defeat the
-         *     point of certifying at all.
-         */
-        post: operations["repair_scene_api_scenes__scene_id__repair_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Preview Scene Physics
+     * @description Build MuJoCo input from pending edits without mutating the scene.
+     *
+     *     There is deliberately no solve or repair here. The preview answers what gravity
+     *     does to the exact draft the user sees; committing remains the operation which
+     *     re-derives supports, solves, certifies, and optionally repairs.
+     */
+    post: operations["preview_scene_physics_api_scenes__scene_id__physics_preview_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/scenes/{scene_id}/repair": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Health */
-        get: operations["health_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    /**
+     * Repair Scene
+     * @description Re-certify, apply the minimal correction, and re-export.
+     *
+     *     Synchronous, unlike the upload path: measured at roughly 70 ms to certify plus
+     *     20 ms to repair on a small scene, which is well inside a request. If scenes get
+     *     big enough that this stops being true it should move behind the job queue that
+     *     already exists rather than growing a timeout.
+     *
+     *     Both exports are regenerated because they are pure functions of the graph, and
+     *     a repaired scene whose MJCF still described the broken one would defeat the
+     *     point of certifying at all.
+     */
+    post: operations["repair_scene_api_scenes__scene_id__repair_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/health": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    /** Health */
+    get: operations["health_health_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        /**
-         * AssetFrame
-         * @description How a reconstruction model's raw output was brought into the canonical frame.
-         *
-         *     Models emit assets in different up-axes, different front-faces, and different
-         *     scale conventions — most normalise to a unit box. Recording the transform that
-         *     was stripped is what lets stage 6 optimise one scale variable per object
-         *     instead of two incompatible ones, and keeps the reconciliation auditable when
-         *     an object comes out sideways.
-         */
-        AssetFrame: {
-            /**
-             * Source
-             * @description Model that produced the asset, e.g. 'sam3d'.
-             */
-            source: string;
-            /** @default +z */
-            up_axis: components["schemas"]["Axis"];
-            /** @default -y */
-            front_axis: components["schemas"]["Axis"];
-            /**
-             * Rotation
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            rotation: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Normalization Scale
-             * @description The model's own internal normalisation, divided out here so it never gets confused with the physical scale the solver estimates.
-             * @default 1
-             */
-            normalization_scale: number;
-        };
-        /**
-         * Axis
-         * @enum {string}
-         */
-        Axis: "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
-        /**
-         * AxisStatus
-         * @enum {string}
-         */
-        AxisStatus: "pass" | "fail" | "not_applicable" | "not_run";
-        /**
-         * BalanceCheck
-         * @description Whether the observed pose admits static equilibrium under gravity.
-         *
-         *     New certificates use the initial MuJoCo contacts and a polyhedral 3-D friction
-         *     cone. The horizontal support polygon remains as an interpretable diagnostic and
-         *     repair signal, but it is not the verdict for leaning or contained objects.
-         */
-        BalanceCheck: {
-            /** Object Id */
-            object_id: string;
-            /** Centre Of Mass Xy M */
-            centre_of_mass_xy_m: [
-                number,
-                number
-            ];
-            /**
-             * Centre Of Mass M
-             * @description Full world-space COM used by the check. None on legacy certificates.
-             */
-            centre_of_mass_m?: [
-                number,
-                number,
-                number
-            ] | null;
-            /** Contact Count */
-            contact_count: number;
-            /**
-             * Contact Points M
-             * @description World-space samples on the supporting surface used by the force test.
-             */
-            contact_points_m?: [
-                number,
-                number,
-                number
-            ][];
-            /**
-             * Support Polygon Xy M
-             * @description Counter-clockwise convex hull of the contact samples in world XY.
-             */
-            support_polygon_xy_m?: [
-                number,
-                number
-            ][];
-            /**
-             * Full Base Polygon Xy M
-             * @description Counter-clockwise hull of every lowest underside sample, before clipping it to surfaces that are actually beneath the object. Comparing this with support_polygon_xy_m distinguishes overhang from an intrinsically bad COM.
-             */
-            full_base_polygon_xy_m?: [
-                number,
-                number
-            ][];
-            /**
-             * Evidence Source
-             * @description collision_proxy, obb_fallback, or unavailable for a legacy result.
-             * @default unavailable
-             */
-            evidence_source: string;
-            /**
-             * Resting On
-             * @description Nearest measured supporting object, or None for the floor.
-             */
-            resting_on?: string | null;
-            /** Contact Force Feasible */
-            contact_force_feasible: boolean;
-            /**
-             * Equilibrium Model
-             * @description contact_wrench_3d for current certificates; horizontal_support_2d for legacy or controlled benchmark results.
-             * @default horizontal_support_2d
-             */
-            equilibrium_model: string;
-            /**
-             * Wrench Contacts
-             * @description Actual initial MuJoCo contacts used by the 3-D equilibrium LP.
-             */
-            wrench_contacts?: components["schemas"]["WrenchContactEvidence"][];
-            /**
-             * Non Horizontal Contact Count
-             * @description Contacts whose normal is more than 30 degrees from world vertical.
-             * @default 0
-             */
-            non_horizontal_contact_count: number;
-            /**
-             * Support Margin M
-             * @description Signed XY distance from COM to the contact hull boundary. Positive is inside, negative is outside, zero is marginal.
-             */
-            support_margin_m: number;
-            /**
-             * Full Base Margin M
-             * @description Signed XY distance from COM to the object's complete base hull. Negative means translating the rigid object cannot make it balance.
-             * @default 0
-             */
-            full_base_margin_m: number;
-            /**
-             * Full Base Force Feasible
-             * @description Whether the complete base, on an unlimited flat support, could balance this centre of mass.
-             * @default false
-             */
-            full_base_force_feasible: boolean;
-            /**
-             * Support Coverage Ratio
-             * @description Fraction of sampled base points that currently have support contact.
-             * @default 0
-             */
-            support_coverage_ratio: number;
-            /** @default insufficient_geometry */
-            failure_kind: components["schemas"]["BalanceFailureKind"];
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * BalanceFailureKind
-         * @description Why the photographed pose does not admit the measured support wrench.
-         *
-         *     The distinction is actionable.  A partially supported object can be translated
-         *     farther onto its parent; an intrinsically imbalanced object cannot, because a
-         *     rigid translation moves its centre of mass and its own feet together.
-         * @enum {string}
-         */
-        BalanceFailureKind: "none" | "partial_support" | "intrinsic_imbalance" | "no_contact" | "insufficient_geometry" | "contact_wrench_infeasible";
-        /** Body_create_job_api_jobs_post */
-        Body_create_job_api_jobs_post: {
-            /** Image */
-            image: string;
-        };
-        /**
-         * CameraPose
-         * @description Where the photo was taken from, in world coordinates.
-         *
-         *     Recoverable exactly rather than guessed: the reconstruction is built in camera
-         *     coordinates, so the camera sits at the origin of the frame reconcile rotates and
-         *     shifts. Its height above the floor falls out of the floor fit — on one room,
-         *     1.16 m, which is a plausible standing eye level and a free sanity check on the
-         *     plane.
-         *
-         *     The viewer opens from here so a reconstruction can be compared against the photo
-         *     it came from without the user hunting for the angle.
-         */
-        CameraPose: {
-            /**
-             * Position M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Forward
-             * @description Unit view direction.
-             * @default [
-             *       0,
-             *       1,
-             *       0
-             *     ]
-             */
-            forward: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Up
-             * @default [
-             *       0,
-             *       0,
-             *       1
-             *     ]
-             */
-            up: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Vertical Fov Deg
-             * @description Derived from the intrinsics, so the framing matches.
-             * @default 60
-             */
-            vertical_fov_deg: number;
-        };
-        /**
-         * Certificate
-         * @description "Simulation-ready" as a checkable multi-axis contract rather than a vibe.
-         */
-        Certificate: {
-            /**
-             * Certificate Version
-             * @description Version of the certificate contract, independent of the API version.
-             * @default 1.2
-             */
-            certificate_version: string;
-            /**
-             * Generated At
-             * @description UTC time when the validators ran. None on legacy or unrun certificates.
-             */
-            generated_at?: string | null;
-            /**
-             * Scene Graph Sha256
-             * @description Hash of the exact serialized SceneGraph that was certified.
-             */
-            scene_graph_sha256?: string | null;
-            /**
-             * Collision Geometry Sha256
-             * @description Content hash of the collision meshes referenced by the scene graph.
-             */
-            collision_geometry_sha256?: string | null;
-            /** Simulator Name */
-            simulator_name?: string | null;
-            /** Simulator Version */
-            simulator_version?: string | null;
-            /**
-             * Axis Errors
-             * @description Axis to execution error. An axis listed here has status NOT_RUN.
-             */
-            axis_errors?: {
-                [key: string]: string;
-            };
-            /** @default not_run */
-            scale_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            balance_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            stability_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            inertial_status: components["schemas"]["AxisStatus"];
-            /** @default not_run */
-            cost_status: components["schemas"]["AxisStatus"];
-            /** Scale */
-            scale?: components["schemas"]["ScaleCheck"][];
-            /** Balance */
-            balance?: components["schemas"]["BalanceCheck"][];
-            /** Stability */
-            stability?: components["schemas"]["StabilityCheck"][];
-            /** Inertial */
-            inertial?: components["schemas"]["InertialCheck"][];
-            cost?: components["schemas"]["CostCheck"] | null;
-            /**
-             * Penetration Tolerance M
-             * @description Populated from Settings.max_penetration_m by the certify stage; recorded on the certificate so a stored result stays interpretable after the setting changes. Non-zero because mesh discretisation produces sub-millimetre contacts on surfaces flush by design, and a zero-tolerance check would fail every well-modelled object. Results are reported against this value so their sensitivity to it is visible.
-             * @default 0.002
-             */
-            penetration_tolerance_m: number;
-            /**
-             * Com Displacement Tolerance M
-             * @description From Settings.max_com_displacement_m, recorded for the same reason as the penetration tolerance.
-             * @default 0.01
-             */
-            com_displacement_tolerance_m: number;
-            /**
-             * Support Gap Tolerance M
-             * @description From Settings.max_support_gap_m — how far an object may sit from what it rests on before the scale axis calls it floating or sunk.
-             *
-             *     Added after a client reported an object as 'floating above its support by 0.9 mm (tolerance 2 mm)' when it passed the gap test outright at a 5 mm bar and had failed on containment instead. With no gap tolerance published the client had reached for `penetration_tolerance_m`, which is the closest number on the certificate and the wrong one.
-             * @default 0.005
-             */
-            support_gap_tolerance_m: number;
-            /**
-             * Prior Deviation Tolerance Sigma
-             * @description From Settings.max_prior_deviation_sigma. Published for the same reason: a client with no threshold to read invents one, and an invented cutoff disagrees with the axis it claims to explain.
-             * @default 3
-             */
-            prior_deviation_tolerance_sigma: number;
-            /**
-             * Orientation Drift Tolerance Deg
-             * @description From Settings.max_orientation_drift_deg. This is a gravity-relative tilt limit; yaw around world-up is deliberately excluded.
-             *
-             *     All thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
-             * @default 2
-             */
-            orientation_drift_tolerance_deg: number;
-            /**
-             * Linear Speed Tolerance M S
-             * @description From Settings.max_linear_speed_m_s. Applied to the COM rate over the filtered pose window rather than instantaneous solver velocity.
-             * @default 0.005
-             */
-            linear_speed_tolerance_m_s: number;
-            /**
-             * Angular Speed Tolerance Deg S
-             * @description From Settings.max_angular_speed_deg_s. Applied to filtered gravity-relative tilt rate, with world-up yaw ignored.
-             * @default 1
-             */
-            angular_speed_tolerance_deg_s: number;
-            /**
-             * Settle Minimum Seconds
-             * @description Minimum simulation duration before stability may finish early.
-             * @default 2
-             */
-            settle_minimum_seconds: number;
-            /**
-             * Settle Timeout Seconds
-             * @description Maximum simulation duration when the scene does not become quiet.
-             * @default 5
-             */
-            settle_timeout_seconds: number;
-            /**
-             * Settle Quiet Seconds
-             * @description Required continuous time below both speed tolerances.
-             * @default 0.5
-             */
-            settle_quiet_seconds: number;
-        };
-        /** CostCheck */
-        CostCheck: {
-            proxy_tier: components["schemas"]["ProxyTier"];
-            /** Mean Step Time Ms */
-            mean_step_time_ms: number;
-            /** Budget Ms */
-            budget_ms: number;
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * DepthObservation
-         * @description What stage 2 measured about one object, kept so stage 6 can be re-run.
-         *
-         *     Six numbers, and they are the entire depth input to the solve: `_residuals`
-         *     scores the object's world AABB centre and extent against these and reads
-         *     nothing else from the depth map. Storing them rather than the 4 MB map is what
-         *     makes a re-solve stateless — a user edit can be committed and the scene
-         *     re-fitted without the depth `.npy` and every mask PNG still being on disk under
-         *     the key that produced them.
-         *
-         *     In the **recentred world frame**, not the camera frame `reconcile.observe`
-         *     reports. Applying `world_offset_m` once here means a re-solve does not have to
-         *     know whether it has been applied already, which is the sort of thing that is
-         *     silently wrong in one direction.
-         */
-        DepthObservation: {
-            /** Centre M */
-            centre_m: [
-                number,
-                number,
-                number
-            ];
-            /** Extent M */
-            extent_m: [
-                number,
-                number,
-                number
-            ];
-        };
-        /**
-         * DimensionPrior
-         * @description Class-conditioned real-world size, with the uncertainty that makes it usable.
-         *
-         *     E_prior is a Mahalanobis term weighted by 1/sigma^2, so the per-axis sigma is
-         *     not decoration: it is what lets "dishwasher: 60 cm +/- 2 cm" outweigh
-         *     "chair: 50 cm +/- 20 cm" instead of both pulling equally. A scalar
-         *     confidence cannot express that, because the tightness is per axis — an
-         *     interior door is pinned in width and height and nearly free in depth.
-         */
-        DimensionPrior: {
-            /** Dims M */
-            dims_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Sigma M
-             * @description Per-axis stddev. Feeds E_prior as 1/sigma^2.
-             */
-            sigma_m: [
-                number,
-                number,
-                number
-            ];
-        };
-        /**
-         * ExportResult
-         * @description Paths relative to the storage directory, not absolute.
-         *
-         *     These are what a client fetches through the `/storage` mount, so it builds the
-         *     URL as `/storage/{path}`. Storing the absolute form would be unusable to a
-         *     browser and would break the moment the storage directory moves — which it does
-         *     between a developer's machine and a test's temp dir.
-         */
-        ExportResult: {
-            /** Mjcf Path */
-            mjcf_path?: string | null;
-            /** Gltf Path */
-            gltf_path?: string | null;
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** InertialCheck */
-        InertialCheck: {
-            /** Object Id */
-            object_id: string;
-            /** Mass Density Volume Consistent */
-            mass_density_volume_consistent: boolean;
-            /** Positive Definite */
-            positive_definite: boolean;
-            /** Triangle Inequality */
-            triangle_inequality: boolean;
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * InertialProperties
-         * @description Assigned from a class-conditioned density prior; mass and inertia derived.
-         *
-         *     mass_kg and inertia_diag are functions of density and the *scaled* mesh
-         *     volume, so they are recomputed whenever the solver moves a scale rather than
-         *     being fitted independently. volume_m3 is retained because the inertial
-         *     certification axis checks mass, density and volume against each other, and
-         *     it cannot do that if only two of the three survive.
-         */
-        InertialProperties: {
-            /** Density Kg M3 */
-            density_kg_m3: number;
-            /**
-             * Volume M3
-             * @description Enclosed volume of the **visual** mesh, not the collision proxy and not the bounding box. Measured on a dining table: the mesh encloses 0.064 m3, its convex hull 0.962 m3, its bounding box 1.013 m3 — so taking volume from the proxy gives a 15x mass error on any open shape. The two meshes exist for different purposes and this is the one that means mass.
-             */
-            volume_m3: number;
-            /** Mass Kg */
-            mass_kg: number;
-            /**
-             * Com M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            com_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Inertia Diag
-             * @description Principal moments, part frame.
-             */
-            inertia_diag: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Principal Axes
-             * @description Part frame -> principal frame (MuJoCo iquat).
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            principal_axes: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Watertight
-             * @description False means volume, and therefore mass, is not trustworthy — trimesh will hand you a non-watertight mesh and a meaningless volume without complaining.
-             * @default false
-             */
-            watertight: boolean;
-        };
-        /** Intrinsics */
-        Intrinsics: {
-            /** Fx */
-            fx: number;
-            /** Fy */
-            fy: number;
-            /** Cx */
-            cx: number;
-            /** Cy */
-            cy: number;
-        };
-        /**
-         * JobState
-         * @enum {string}
-         */
-        JobState: "pending" | "running" | "succeeded" | "needs_attention" | "failed";
-        /** JobStatus */
-        JobStatus: {
-            /** Id */
-            id: string;
-            state: components["schemas"]["JobState"];
-            /** Current Stage */
-            current_stage: string | null;
-            /** Stage Status */
-            stage_status: {
-                [key: string]: unknown;
-            };
-            /** Error */
-            error: string | null;
-            /** Scene Id */
-            scene_id: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Finished At */
-            finished_at: string | null;
-        };
-        /**
-         * Material
-         * @description Dominant surface material, which is what density is keyed on.
-         *
-         *     Coarse on purpose. A closed vocabulary is something a VLM judges reliably from
-         *     a photo, whereas a number in kg/m3 is not — so the model picks a bucket and
-         *     the density comes from a table.
-         * @enum {string}
-         */
-        Material: "wood" | "metal" | "plastic" | "glass" | "ceramic" | "fabric" | "stone" | "paper" | "other";
-        /**
-         * ObjectEdit
-         * @description A user edit. Every field is optional; whatever is set becomes a pinned
-         *     constraint held fixed while the rest of the scene re-solves around it.
-         */
-        ObjectEdit: {
-            /** Object Id */
-            object_id: string;
-            /** Scale */
-            scale?: number | null;
-            /** Position M */
-            position_m?: [
-                number,
-                number,
-                number
-            ] | null;
-            /** Orientation */
-            orientation?: [
-                number,
-                number,
-                number,
-                number
-            ] | null;
-            /** Supported By */
-            supported_by?: string | null;
-            /** Mass Kg */
-            mass_kg?: number | null;
-        };
-        /** ObjectLabel */
-        ObjectLabel: {
-            /** Object Id */
-            object_id: string;
-            /** Category */
-            category: string;
-            /**
-             * @description Feeds the density prior. Only meaningful against a *mesh* volume: material density times a bounding-box volume overestimates open shapes by an order of magnitude. See app.pipeline.inertia.
-             * @default other
-             */
-            material: components["schemas"]["Material"];
-            /** @description Absent until there is a measured priors table to draw on. A VLM asked for metres is guessing, and a fabricated prior with an invented sigma is worse than none: E_prior weights by 1/sigma^2, so a made-up sigma is a made-up weight. While this is None, absolute scale rests entirely on metric depth — which is row 1 of the ablation, not a workaround. */
-            prior?: components["schemas"]["DimensionPrior"] | null;
-            /**
-             * Support Parent
-             * @description object_id of the supporting body, or None for the floor. The VLM supplies an initial guess; reconcile overrides it with measured contact once geometry exists, since by then it is observable rather than inferred.
-             */
-            support_parent?: string | null;
-        };
-        /**
-         * ObjectUncertainty
-         * @description High uncertainty is not failure. An object can be confidently wrong or
-         *     uncertainly fine, and those warrant different user responses — which is why
-         *     this is a separate channel from Certificate rather than a field on it.
-         *
-         *     Every field is optional because reporting confidence obligates calibrating
-         *     it, and an uncalibrated signal is better absent than shown.
-         */
-        ObjectUncertainty: {
-            /** Object Id */
-            object_id: string;
-            /** Scale Variance */
-            scale_variance?: number | null;
-            /** Depth Prior Disagreement M */
-            depth_prior_disagreement_m?: number | null;
-            /** Used Obb Fallback */
-            used_obb_fallback?: boolean | null;
-            /** Visible Surface Fraction */
-            visible_surface_fraction?: number | null;
-        };
-        /**
-         * ObjectVerdict
-         * @description What the reconstruction-verification pass decided about one object,
-         *     comparing a render of the posed scene against the original photo.
-         * @enum {string}
-         */
-        ObjectVerdict: "ok" | "duplicate" | "external";
-        /**
-         * ObjectVerification
-         * @description One object's verdict, kept whether or not it survives — a removal with no
-         *     visible reason is not something anyone could check later.
-         */
-        ObjectVerification: {
-            /** Object Id */
-            object_id: string;
-            verdict: components["schemas"]["ObjectVerdict"];
-            /**
-             * Duplicate Of
-             * @description The object_id it duplicates, when verdict is DUPLICATE.
-             */
-            duplicate_of?: string | null;
-            /**
-             * Reason
-             * @description What the model saw, for debugging.
-             * @default
-             */
-            reason: string;
-        };
-        /**
-         * PartGeometry
-         * @description One rigid piece of an object.
-         *
-         *     Most objects are a single part. The hierarchy exists because a reconstruction
-         *     can come back as several rigidly-attached pieces — a lamp base and its shade —
-         *     and keeping them separate gives the collision proxy something better than one
-         *     box around the union.
-         */
-        PartGeometry: {
-            /** Part Id */
-            part_id: string;
-            /** Name */
-            name: string;
-            /** Parent Part Id */
-            parent_part_id?: string | null;
-            /** Visual Mesh Path */
-            visual_mesh_path?: string | null;
-            /**
-             * Source Mesh Path
-             * @description The mesh as reconstruction returned it, before decimation.
-             *
-             *     `visual_mesh_path` is what the browser downloads and is decimated to fit `max_mesh_faces`; decimation opens the surface, and a repair pass does not close it again. So the file the viewer gets is not the file physics should be built from, and building physics from it made a visual budget decide a physical fact: measured on `room2.png`, an armchair that crossed the face cap came out with no collision geometry under its lower 27.9%, fell 589 mm, and took the pillow on it down 992 mm.
-             *
-             *     Kept so `inertia` can decompose and weigh the closed original while the viewer keeps the small one. None on the OBB fallback path, and on meshes that never needed decimating — there the visual mesh *is* the original.
-             */
-            source_mesh_path?: string | null;
-            /** Collision Mesh Paths */
-            collision_mesh_paths?: string[];
-            /** @default obb */
-            proxy_tier: components["schemas"]["ProxyTier"];
-            /**
-             * Dims M
-             * @description Extent at unit object scale; multiply by SceneObject.scale.
-             */
-            dims_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Origin M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            origin_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Source Volume M3
-             * @description Enclosed volume measured on the mesh **as reconstructed**, before decimation. Mass is computed from this rather than from the stored file: decimation is what makes a 22 MB mesh shippable, but it breaks watertightness, and trimesh's volume is only meaningful on a closed surface. Measured on one object — 1.1M faces to 20k changed the volume by 0.18%, so the loss is in the guarantee, not the number.
-             */
-            source_volume_m3?: number | null;
-            /**
-             * Source Watertight
-             * @description Whether the mesh was closed *before* decimation, and so whether `source_volume_m3` can be trusted. Pessimistic by default.
-             * @default false
-             */
-            source_watertight: boolean;
-            inertial?: components["schemas"]["InertialProperties"] | null;
-            /**
-             * Visible Surface Fraction
-             * @description Observed fraction of the part's extent. Single-view depth sees the front shell only, so the rest is amodal inference. v2 uncertainty signal.
-             */
-            visible_surface_fraction?: number | null;
-        };
-        /**
-         * PhysicsBundle
-         * @description Everything the browser needs to compile this scene in MuJoCo, in one request.
-         *
-         *     The frontend runs the same MuJoCo — `@mujoco/mujoco` 3.11.0 against the
-         *     backend's 3.11.0 — over this exact MJCF, which is what lets it certify an edit
-         *     locally instead of approximating the server. `mjcf.build_xml` names mesh assets
-         *     by bare filename precisely so a consumer without a filesystem can satisfy them;
-         *     `meshes` maps each of those names to the URL to fetch it from.
-         *
-         *     One request rather than letting the client discover 109 asset URLs by parsing
-         *     the XML: the naming is `mjcf`'s business and a second implementation of it in
-         *     TypeScript would be one more thing to keep in step.
-         */
-        PhysicsBundle: {
-            /** Mjcf */
-            mjcf: string;
-            /**
-             * Meshes
-             * @description Mesh asset filename, as it appears in the MJCF, to its `/storage`-relative URL.
-             */
-            meshes: {
-                [key: string]: string;
-            };
-        };
-        /**
-         * PhysicsPreviewRequest
-         * @description Uncommitted object edits to apply to an ephemeral MuJoCo scene.
-         *
-         *     The graph is cloned and never solved, certified, exported, or stored. This is
-         *     intentionally narrower than ``SceneEditRequest``: anchors and repair choices
-         *     have no meaning when the user is asking "what happens if I release exactly
-         *     what is on screen?"
-         */
-        PhysicsPreviewRequest: {
-            /** Objects */
-            objects?: components["schemas"]["ObjectEdit"][];
-        };
-        /**
-         * Provenance
-         * @description Where a value came from. Reported per field.
-         *
-         *     USER is the load-bearing one: a user-pinned value is held fixed while
-         *     everything else re-solves around it, so the solver reads this to decide
-         *     which variables are free.
-         * @enum {string}
-         */
-        Provenance: "model" | "derived" | "balance_inferred" | "user" | "fallback";
-        /**
-         * ProxyTier
-         * @description Collision-geometry fidelity.
-         *
-         *     Describes the *collision* representation specifically, which stays OBB until the
-         *     inertia stage runs CoACD over the visual mesh. Whether reconstruction succeeded
-         *     is a separate question, answered by `PartGeometry.visual_mesh_path` being set —
-         *     an object can have a real mesh and still be colliding as a box.
-         * @enum {string}
-         */
-        ProxyTier: "obb" | "convex_hull" | "decomposed";
-        /**
-         * RepairAction
-         * @description The magnitude and the axis repaired are both recorded, because choosing a
-         *     correction badly discards information silently and that is the failure mode
-         *     worth engineering against.
-         */
-        RepairAction: {
-            kind: components["schemas"]["RepairKind"];
-            /** Target Id */
-            target_id: string;
-            /** Axis Repaired */
-            axis_repaired: string;
-            /**
-             * Delta Position M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            delta_position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Delta Com M
-             * @description For INFER_BALANCED_COM: object-frame shift applied to every part COM. It is reported separately from position because the visible object does not move; the inferred internal mass distribution does.
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            delta_com_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Delta Scale
-             * @default 1
-             */
-            delta_scale: number;
-            /**
-             * New Parent Id
-             * @description For REPARENT: the object this should have been recorded as resting on. Distinct from a position change because nothing moves — the geometry was right and the bookkeeping was wrong.
-             */
-            new_parent_id?: string | null;
-            /**
-             * Magnitude
-             * @description Size of the correction, for minimality.
-             * @default 0
-             */
-            magnitude: number;
-            /**
-             * Improved
-             * @description Whether revalidation actually got better. A repair that made things worse is discarded rather than reported.
-             * @default true
-             */
-            improved: boolean;
-        };
-        /**
-         * RepairKind
-         * @description One per way a scene can fail.
-         *
-         *     The pairing is the point. A criterion the certificate can fail on with no
-         *     strategy able to address it produces a scene that is reported broken and cannot
-         *     be acted on — measured on `room2.png`, four of five failing objects were outside
-         *     their contact polygon, `snap_to_support` moves only in z, and repair proposed a
-         *     single action for the whole scene and rejected it. `test_repair` asserts the
-         *     pairing so a new criterion cannot land without one.
-         * @enum {string}
-         */
-        RepairKind: "snap_to_support" | "slide_onto_support" | "recenter_on_support" | "infer_balanced_com" | "reparent" | "resolve_penetration" | "rescale" | "upgrade_proxy_tier";
-        /** RepairResponse */
-        RepairResponse: {
-            scene: components["schemas"]["SceneEnvelope"];
-            /** Actions */
-            actions: components["schemas"]["RepairAction"][];
-            /** Converged */
-            converged: boolean;
-            /** Rounds Used */
-            rounds_used: number;
-        };
-        /**
-         * ScaleAnchor
-         * @description A user-supplied true dimension: E_prior with sigma -> 0, i.e. a hard constraint.
-         *
-         *     One anchor usually settles the whole scene, which is a consequence of the
-         *     coupled formulation rather than a coincidence — absolute scale is a single
-         *     global degree of freedom, and support and contact constraints propagate it
-         *     outward. Propagation reaches only as far as the constraint graph is
-         *     connected; an object with no contacts and no support parent gains nothing.
-         */
-        ScaleAnchor: {
-            /** Object Id */
-            object_id: string;
-            /**
-             * Axis
-             * @description 0 = width, 1 = height, 2 = depth.
-             */
-            axis: number;
-            /** Value M */
-            value_m: number;
-        };
-        /** ScaleCheck */
-        ScaleCheck: {
-            /** Object Id */
-            object_id: string;
-            /**
-             * Deviation Sigma
-             * @description Per-axis (fitted - prior) / sigma.
-             */
-            deviation_sigma: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Support Gap M
-             * @description Signed gap on the support contact. Negative is penetration.
-             * @default 0
-             */
-            support_gap_m: number;
-            /**
-             * Touching Parent
-             * @description Whether the object meets the thing it is *recorded* as resting on, anywhere, within the penetration tolerance.
-             *
-             *     Split from `support_gap_m` because the two answer different questions and folding them together made both wrong. The gap is geometry — is this floating, buried, or resting — and it is measured against whatever lies beneath the object, which in a real scene is often more than one thing: an armchair with three legs on a rug and one on the floor is ordinary and stable, and so is a book overlapping another book by most of its face.
-             *
-             *     This is semantics: a book that fell from its table to the floor has a perfect gap and is perfectly stable, and is still in the wrong place. Only a check that names the table can say so.
-             * @default true
-             */
-            touching_parent: boolean;
-            /**
-             * Resting On
-             * @description What the object is actually nearest to resting on, which need not be `SceneObject.supported_by`. None means the floor. Recorded because a disagreement between the two is the single most useful thing to know when a scene looks right and certifies wrong.
-             */
-            resting_on?: string | null;
-            /**
-             * Base Inside Parent
-             * @default true
-             */
-            base_inside_parent: boolean;
-            /**
-             * Contact Constrained
-             * @description Whether a feasible non-horizontal contact with the declared parent makes horizontal base containment inapplicable (for example an object leaning against the inside wall of a container).
-             * @default false
-             */
-            contact_constrained: boolean;
-            /**
-             * Passed
-             * @default true
-             */
-            passed: boolean;
-        };
-        /** SceneEditRequest */
-        SceneEditRequest: {
-            /** Objects */
-            objects?: components["schemas"]["ObjectEdit"][];
-            /** Anchors */
-            anchors?: components["schemas"]["ScaleAnchor"][];
-            /**
-             * Resolve
-             * @description Re-run stage 6 with the edits pinned, then re-certify. False stores the submitted pose exactly (used for paused browser physics), while still refreshing geometric support relationships and re-certifying it.
-             * @default true
-             */
-            resolve: boolean;
-        };
-        /**
-         * SceneEditResponse
-         * @description The committed scene, plus every structural correction made along the way.
-         *
-         *     The actions are not decoration. A commit now repairs as well as re-solves, and
-         *     a repair that moved an object without saying so is the silent-change problem
-         *     the endpoint used to avoid by not repairing at all. Reported here so the client
-         *     can show what a drag actually cost — including the proposals that were tried
-         *     and reverted, which `RepairAction.improved` distinguishes.
-         *
-         *     Support changes are separate because re-deriving a stale parent happens before
-         *     repair.  It is a consequence of the edit, not a repair proposal, but it is still
-         *     a graph change the user should be told about.
-         */
-        SceneEditResponse: {
-            scene: components["schemas"]["SceneEnvelope"];
-            /** Actions */
-            actions: components["schemas"]["RepairAction"][];
-            /** Support Changes */
-            support_changes: components["schemas"]["SupportChange"][];
-        };
-        /**
-         * SceneEnvelope
-         * @description A spec plus the row metadata a client needs but the spec does not carry.
-         *
-         *     `updated_at` is here because the exported `scene.glb` is rewritten in place at
-         *     the same URL every time a scene changes. Without a version to hang off the
-         *     request the browser serves its cached copy, and a repair looks like it did
-         *     nothing.
-         */
-        SceneEnvelope: {
-            spec: components["schemas"]["SceneSpec"];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** SceneGraph */
-        SceneGraph: {
-            /** Objects */
-            objects: components["schemas"]["SceneObject"][];
-            camera?: components["schemas"]["CameraPose"] | null;
-            /**
-             * Floor Height M
-             * @default 0
-             */
-            floor_height_m: number;
-            /**
-             * World Offset M
-             * @description Translation already applied to bring the scene's horizontal centre onto the origin.
-             *
-             *     Reconstruction happens in camera coordinates, so the untranslated origin is wherever the photographer stood and a scene lands somewhere different for every photo. That is correct and unhelpful: a viewer with one fixed camera, and a user comparing two reconstructions, both want the scene in the same place. Recording the offset rather than discarding it keeps the frames relatable — `solve` measures against depth observations that are still in camera coordinates, and has to undo this to compare like with like.
-             *
-             *     Horizontal only. Z is the floor, fixed by the plane fit and shared with MJCF's ground plane, so shifting it would put objects above a floor that does not move.
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            world_offset_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Gravity Rotation
-             * @description Rotation applied in stage 5 to bring the fitted floor plane world-down. Everything after this assumes gravity along -Z.
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            gravity_rotation: [
-                number,
-                number,
-                number,
-                number
-            ];
-        };
-        /**
-         * SceneObject
-         * @description One object in the canonical, gravity-aligned scene graph.
-         *
-         *     scale, position_m and orientation are exactly the stage-6 decision variables.
-         *     Provenance decides which of them are free.
-         */
-        SceneObject: {
-            /** Provenance */
-            provenance?: {
-                [key: string]: components["schemas"]["Provenance"];
-            };
-            /** Object Id */
-            object_id: string;
-            label: components["schemas"]["ObjectLabel"];
-            frame: components["schemas"]["AssetFrame"];
-            /** Parts */
-            parts: components["schemas"]["PartGeometry"][];
-            /**
-             * Scale
-             * @description Isotropic. The s_i of stage 6.
-             * @default 1
-             */
-            scale: number;
-            /**
-             * Position M
-             * @default [
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Orientation
-             * @default [
-             *       1,
-             *       0,
-             *       0,
-             *       0
-             *     ]
-             */
-            orientation: [
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Supported By
-             * @description object_id of the supporting body, or None for the floor.
-             */
-            supported_by?: string | null;
-            /** @description What depth measured for this object, carried so stage 6 can be re-run without the depth map. Absent on hand-authored scenes, which have no measurement behind them — the solver then has no `E_depth` term for the object and relies on contact alone. */
-            observation?: components["schemas"]["DepthObservation"] | null;
-            /**
-             * Degradation Reason
-             * @description Why this object came back worse than intended, when it did — reconstruction failed and it fell back to a box, say. Shown in the viewer, because 'we could not reconstruct this' is a different message to the user than 'this reconstructed but fails certification'.
-             */
-            degradation_reason?: string | null;
-        };
-        /**
-         * SceneOutcome
-         * @description Whether a completed pipeline run produced a scene ready for use.
-         *
-         *     This is deliberately separate from process success.  A run can execute every
-         *     stage and still finish with a non-converged optimiser, a pose that moves under
-         *     gravity, or a failed certificate.  Such a scene is retained for inspection and
-         *     editing, but it is a draft rather than a successful physical reconstruction.
-         * @enum {string}
-         */
-        SceneOutcome: "ready" | "needs_attention";
-        /** SceneSpec */
-        SceneSpec: {
-            /** Scene Id */
-            scene_id: string;
-            /**
-             * Image Path
-             * @description Source-image path relative to the private storage directory. Kept for provenance and pipeline re-runs; it is not a public asset URL.
-             */
-            image_path: string;
-            intrinsics: components["schemas"]["Intrinsics"];
-            graph: components["schemas"]["SceneGraph"];
-            certificate?: components["schemas"]["Certificate"];
-            /** Anchors */
-            anchors?: components["schemas"]["ScaleAnchor"][];
-            weights?: components["schemas"]["SolveWeights"];
-            diagnostics?: components["schemas"]["SolveDiagnostics"];
-            /** Repairs Applied */
-            repairs_applied?: components["schemas"]["RepairAction"][];
-            /** @default needs_attention */
-            outcome: components["schemas"]["SceneOutcome"];
-            /** Outcome Reasons */
-            outcome_reasons?: string[];
-            /**
-             * Removed Objects
-             * @description Objects the verification stage dropped as external or duplicated, with the reasoning — the auditable record of what reconstruction produced that this scene does not.
-             */
-            removed_objects?: components["schemas"]["ObjectVerification"][];
-            exports?: components["schemas"]["ExportResult"];
-            /** Uncertainty */
-            uncertainty?: components["schemas"]["ObjectUncertainty"][];
-        };
-        /** SceneSummary */
-        SceneSummary: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Object Count */
-            object_count: number;
-            /** Certified */
-            certified: boolean;
-            outcome: components["schemas"]["SceneOutcome"];
-            /** Outcome Reasons */
-            outcome_reasons: string[];
-            /** Axes */
-            axes: {
-                [key: string]: components["schemas"]["AxisStatus"];
-            };
-        };
-        /**
-         * SolveDiagnostics
-         * @description What stage 6's block-coordinate loop did, and how far it got.
-         *
-         *     `converged` and `settled` are separate because they answer different questions
-         *     and one used to mask the other. A single flag reported `False` on a scene where
-         *     the optimiser was converging cleanly — 199, 40, 16, 7 mm per round — purely
-         *     because one floor lamp fell over, which reads as "the solve failed" when the
-         *     solve was working and the *reconstruction* was unstable.
-         */
-        SolveDiagnostics: {
-            /**
-             * Iterations
-             * @default 0
-             */
-            iterations: number;
-            /**
-             * Converged
-             * @description The optimiser reached a fixed point: a round moved every variable by less than the round tolerance. About the solve, not the scene.
-             * @default false
-             */
-            converged: boolean;
-            /**
-             * Settled
-             * @description The solved pose is already the equilibrium — settling the scene under gravity moves nothing by more than the round tolerance.
-             *
-             *     Stricter than 'the objects stop moving', and deliberately. A toppled lamp lying still has stopped moving: measured, it is motionless from t=3.5 s and 844 mm from where the solver put it. That scene is *stable*; it is not *correct*. Simulation-ready means the MJCF loads and nothing jumps, which is the same thing the stability axis asks with `max_com_displacement_m`.
-             * @default false
-             */
-            settled: boolean;
-            /**
-             * Max Settle Drift M
-             * @description Furthest any object moves between its solved and settled pose. The scene-wide maximum, so one unstable object dominates it — which is why it is reported as a number rather than only as the flag above.
-             * @default 0
-             */
-            max_settle_drift_m: number;
-            /**
-             * Residual By Term
-             * @description Final E_depth, E_prior, E_sil, E_supp, E_pen.
-             */
-            residual_by_term?: {
-                [key: string]: number;
-            };
-            /**
-             * Scale Variance
-             * @description Inverse-Hessian diagonal at convergence, per object. Falls out of choosing Gauss-Newton for the smooth block; it is v2's primary confidence signal and the answer to which objects an anchor never reached.
-             */
-            scale_variance?: {
-                [key: string]: number;
-            };
-        };
-        /**
-         * SolveWeights
-         * @description The lambdas of stage 6's objective.
-         */
-        SolveWeights: {
-            /**
-             * Depth
-             * @default 1
-             */
-            depth: number;
-            /**
-             * Prior
-             * @default 1
-             */
-            prior: number;
-            /**
-             * Silhouette
-             * @default 0.5
-             */
-            silhouette: number;
-            /**
-             * Support
-             * @description Weight on the signed support gap.
-             *
-             *     Has to outweigh depth on the vertical axis, and by more than it looks: depth contributes six residuals per object — three for the centre, three for the extent — against one for support, so parity of *weights* is a six-to-one loss for contact. At 2.0 a reconstructed side table settled 17.8 mm clear of the rug it rests on, against a 5 mm tolerance, because the depth measurement wanted it higher and outvoted the contact.
-             *
-             *     Raised to 8.0 on the measurement: table gap 17.8 mm -> 5.1 mm, and the depth term's own cost rose only 0.374 -> 0.406, about 10%. Contact is bought cheaply because the two measurements disagree along one axis only. 30.0 buys a further 5.1 -> 3.1 mm for no extra depth cost and 100.0 buys nothing more, so this sits at the knee rather than at the floor — a contact constraint that overrode depth entirely would be discarding the measurement the whole pipeline exists to make.
-             * @default 8
-             */
-            support: number;
-            /**
-             * Penetration
-             * @description Weight on pairwise overlap depth.
-             *
-             *     Raised from 5.0 on measurement. At 5.0 it was outvoted the same way `support` was before its own raise — depth contributes six residuals per object against one per *pair* here — and the overlap it left was the thing physics could not survive: a 14.5 mm book-on-book overlap ejected a 0.158 kg book at 16.7 m/s. Swept on `room2.png`, worst overlap and settle drift both improve to 20 and both get worse past it:
-             *
-             *         weight   worst overlap   settle drift
-             *              5         7.5 mm        2601 mm
-             *             20         4.5 mm        1768 mm
-             *             60        43.5 mm        2554 mm
-             *
-             *     60 overshoots — pushing one pair apart drives each of them into something else — so this sits at the minimum rather than at the top of the range. `room1.png` certifies on all four axes at both 5 and 20 with identical settle drift, so the raise costs nothing on a scene that was already sound.
-             * @default 20
-             */
-            penetration: number;
-            /**
-             * Containment
-             * @description Weight on how far a supported object's footprint centre sits *outside* its support.
-             *
-             *     The support term is signed but vertical — it closes the gap to whatever an object rests on and says nothing about staying over it. So nothing in the objective resisted lateral drift, and depth is free to slide a child off its parent at no cost. Measured on `room2.png`: between reconcile and solve, four objects on the side table moved 314, 904, 1007 and 1225 mm sideways while keeping the same `supported_by`, and seven of nine scale failures were objects at the right height (gap under 3 mm against a 5 mm bar) that were no longer over anything. Floor-standing objects moved 0.0-0.8 mm over the same solve, which is what a term acting only on supported objects looks like when it is missing.
-             *
-             *     One-sided and zero inside, exactly like penetration: an object over its support pays nothing, so this cannot distort a scene that was already right. Measured on the footprint *centre* against the parent's AABB, because that is the criterion `certify.scale` reports — a laptop overhanging a side table by one corner is resting on it, and requiring full containment would fail it.
-             *
-             *     **Off by default. Swept three times, off after each.**
-             *
-             *     The third sweep is the one that settles it, because the two objections the earlier ones raised have both since been answered elsewhere: the target is `nearest_support_xy`, a real occupied column of the parent rather than its AABB, and the support *gap* is now `gap_to`, probed on the child's own underside rather than on bounding-box corners. Neither of the old excuses survives, and the term still does not pay. Swept on `room2`:
-             *
-             *         weight   not-over-support   worst overlap   settle drift
-             *              0         5/16            17.3 mm        11094 mm
-             *              5         5/16            15.2 mm         5925 mm
-             *             10         6/16            15.7 mm         1840 mm
-             *             20         8/16             7.2 mm         1927 mm
-             *             40         6/16            44.7 mm         1049 mm
-             *
-             *     `not-over-support` is the number this term exists to reduce and it goes *up*, non-monotonically, peaking at the weight where overlap happens to look best. That is not a knee to tune to, it is noise.
-             *
-             *     **It is not that the term does nothing — it is that repair does it better.** Scoped to one object, which is how an edit actually runs it, containment works: `room2`'s plate moves from y=0.719 to y=0.578, inside the side table's y span, at every weight from 5 up. But `base_inside_parent` stays False throughout, because being over a surface in plan view is not resting on it, and a lateral term cannot close a vertical gap. Repair closes both — `_slide_onto_support` moves the plate 228 mm onto the table and `_snap_to_support` then drops it the last 2 mm — and since repair now runs on every commit, that path reaches the same objects without the scene-wide cost above.
-             *
-             *     Revisit if repair's scoping ever stops covering the case, or if a scene appears where an object leaves its support without any certificate check firing. Until then this is a term that is right in principle, correct in isolation, and dominated in practice.
-             *
-             *     The second reason it was off, kept because the trade it describes is real:
-             *
-             *     Aimed at the parent's AABB it drove objects into concave parents, so it was re-aimed at the nearest point with real surface under it once the height grid could answer that. Swept again on `room2.png` it still trades one axis for another, now by colliding the object with its neighbours on the way:
-             *
-             *         weight   not-over-support   worst overlap   settle drift
-             *              0         4/17             8.1 mm         2219 mm
-             *             10         2/17            43.5 mm         8183 mm
-             *             40         2/17           105.4 mm         3169 mm
-             *
-             *     It buys two objects their support and costs an order of magnitude of overlap. The pull is only as good as the query under it, and that query still places its probes on the child's *bounding box* rather than on the child's own contact geometry — measured on the side table, a pedestal whose contact patch is 0.107 x 0.037 m inside a 0.56 x 0.58 m footprint, so 99% of what gets probed is the empty air under a round top. Fix the probe placement before believing another sweep of this weight.
-             *
-             *     *Since resolved, and it did not rescue the term.* `SupportHeights.gap_to` now probes the child's own underside points, so the pedestal case is measured correctly — and the third sweep above, run afterwards, is worse than this one. The probes were a real defect; they were not what was holding this weight down.
-             *
-             *     The first reason it was off, kept because the trade it describes is real:
-             *
-             *     The target is the parent's AABB, and a bookshelf's AABB is mostly solid shelf — so pulling a vase's centre 'inside' it drives the vase into the structure. Swept on `room2.png`, against the scene entering solve with no overlap at all:
-             *
-             *         weight   vase buried   not-over-support   settle drift
-             *              0       0.00 mm           6/15           1237 mm
-             *              8       4.95 mm           4/15           1568 mm
-             *             20      20.62 mm           3/15           1731 mm
-             *             60      34.03 mm           1/15           2358 mm
-             *
-             *     It buys the scale axis by paying the stability axis, monotonically, and settling degrades at every step — the 34 mm burial is what MuJoCo ejects at 15.9 m/s before diverging. The term itself is right and its unit tests hold on a flat support; what is wrong is the target. It should pull toward the parent's *supporting surface*, not its bounding box, and today's `SupportHeights` cannot express that — a top-down heightfield keeps one height per column, so it cannot represent a shelf with anything under it. Turn this on once support is a surface rather than a heightfield.
-             *
-             *     For the record, on a flat support the weight sweep was clean: 60.0 is the floor rather than the knee, which is the opposite of how `support` is tuned, and for a reason that does not apply there. Swept against depth wrong by 0.8 m, the residual offset goes 311 mm at 0, then 10.8, 2.8, 0.7, 0.2 and 0.0 mm at 4, 8, 16, 30 and 60 — while the depth term's own cost sits at 0.043 from 4 upward and never moves again. `base_inside_parent` is a boolean, so a term that leaves 0.7 mm outside has not fixed the check it exists to fix, and there is no repair strategy for containment to finish the job — `_snap_to_support` only translates in z. Weighting `support` this hard would override depth on every object because it is signed and always active; this one is inert until an object has already left its support, so buying the boolean outright costs nothing on a scene that was placed correctly.
-             * @default 0
-             */
-            containment: number;
-        };
-        /** StabilityCheck */
-        StabilityCheck: {
-            /** Object Id */
-            object_id: string;
-            /**
-             * Com Displacement M
-             * @description Maximum COM displacement observed anywhere in the settling window.
-             */
-            com_displacement_m: number;
-            /**
-             * Orientation Drift Deg
-             * @description Maximum gravity-relative tilt observed anywhere in the settling window. Rotation around world-up is ignored because yaw does not make an object tip.
-             */
-            orientation_drift_deg: number;
-            /**
-             * Initial Penetration M
-             * @description Measured at t=0. Once the solver starts pushing bodies apart the overlap is gone and the reconstruction error that caused it is unobservable.
-             */
-            initial_penetration_m: number;
-            /**
-             * Penetration Against
-             * @description What the deepest overlap is with: another object's id, or `"floor"`. None when there is no overlap.
-             *
-             *     Recorded because the depth alone does not say what to do about it. Sunk into the ground and interpenetrating a neighbour are different reconstruction errors with different fixes, and a reader told only "overlaps another object" will go looking through the object list for a collision that is with the floor.
-             */
-            penetration_against?: string | null;
-            /**
-             * Terminal Linear Speed M S
-             * @description COM translation rate estimated from pose change across the final filtered settling window, not instantaneous MuJoCo qvel.
-             * @default 0
-             */
-            terminal_linear_speed_m_s: number;
-            /**
-             * Terminal Angular Speed Deg S
-             * @description Gravity-relative tilt rate estimated across the final filtered settling window. World-up yaw is ignored.
-             * @default 0
-             */
-            terminal_angular_speed_deg_s: number;
-            /**
-             * Quiet Duration S
-             * @description Continuous time immediately before the end of the simulation during which both filtered pose-rate limits held.
-             * @default 0
-             */
-            quiet_duration_s: number;
-            /**
-             * Simulation Time S
-             * @description How long MuJoCo was stepped before this result was recorded.
-             * @default 0
-             */
-            simulation_time_s: number;
-            /**
-             * Settled
-             * @description Whether both speed limits held continuously for the required quiet interval. Legacy checks default to true because they did not record velocity evidence.
-             * @default true
-             */
-            settled: boolean;
-            /** Passed */
-            passed: boolean;
-        };
-        /**
-         * SupportChange
-         * @description A support edge changed while committing an edit.
-         *
-         *     ``None`` is the floor in both fields.  Returning both ends makes automatic
-         *     re-parenting visible to the user instead of leaving them to infer it from the
-         *     final object list.
-         */
-        SupportChange: {
-            /** Object Id */
-            object_id: string;
-            /** Previous Support Id */
-            previous_support_id: string | null;
-            /** New Support Id */
-            new_support_id: string | null;
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
-        };
-        /**
-         * WrenchContactEvidence
-         * @description One initial MuJoCo contact used by the general equilibrium check.
-         */
-        WrenchContactEvidence: {
-            /** Position M */
-            position_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Normal M
-             * @description Unit normal force direction acting into the inspected object.
-             */
-            normal_m: [
-                number,
-                number,
-                number
-            ];
-            /**
-             * Other Object Id
-             * @description Object on the other side, or None for the static world.
-             */
-            other_object_id?: string | null;
-            /**
-             * Friction
-             * @description MuJoCo sliding-1, sliding-2, torsional, rolling-1 and rolling-2 friction coefficients used by the wrench cone.
-             */
-            friction: [
-                number,
-                number,
-                number,
-                number,
-                number
-            ];
-            /**
-             * Dimensions
-             * @description Active MuJoCo contact dimension: 1, 3, 4, or 6. Torsional friction requires at least 4 and rolling friction requires 6.
-             * @default 3
-             */
-            dimensions: number;
-            /**
-             * Distance M
-             * @description Signed MuJoCo contact distance; negative values are penetration.
-             */
-            distance_m: number;
-        };
+  schemas: {
+    /**
+     * AssetFrame
+     * @description How a reconstruction model's raw output was brought into the canonical frame.
+     *
+     *     Models emit assets in different up-axes, different front-faces, and different
+     *     scale conventions — most normalise to a unit box. Recording the transform that
+     *     was stripped is what lets stage 6 optimise one scale variable per object
+     *     instead of two incompatible ones, and keeps the reconciliation auditable when
+     *     an object comes out sideways.
+     */
+    AssetFrame: {
+      /**
+       * Source
+       * @description Model that produced the asset, e.g. 'sam3d'.
+       */
+      source: string;
+      /** @default +z */
+      up_axis: components["schemas"]["Axis"];
+      /** @default -y */
+      front_axis: components["schemas"]["Axis"];
+      /**
+       * Rotation
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      rotation: [number, number, number, number];
+      /**
+       * Normalization Scale
+       * @description The model's own internal normalisation, divided out here so it never gets confused with the physical scale the solver estimates.
+       * @default 1
+       */
+      normalization_scale: number;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    /**
+     * Axis
+     * @enum {string}
+     */
+    Axis: "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
+    /**
+     * AxisStatus
+     * @enum {string}
+     */
+    AxisStatus: "pass" | "fail" | "not_applicable" | "not_run";
+    /**
+     * BalanceCheck
+     * @description Whether the observed pose admits static equilibrium under gravity.
+     *
+     *     New certificates use the initial MuJoCo contacts and a polyhedral 3-D friction
+     *     cone. The horizontal support polygon remains as an interpretable diagnostic and
+     *     repair signal, but it is not the verdict for leaning or contained objects.
+     */
+    BalanceCheck: {
+      /** Object Id */
+      object_id: string;
+      /** Centre Of Mass Xy M */
+      centre_of_mass_xy_m: [number, number];
+      /**
+       * Centre Of Mass M
+       * @description Full world-space COM used by the check. None on legacy certificates.
+       */
+      centre_of_mass_m?: [number, number, number] | null;
+      /** Contact Count */
+      contact_count: number;
+      /**
+       * Contact Points M
+       * @description World-space samples on the supporting surface used by the force test.
+       */
+      contact_points_m?: [number, number, number][];
+      /**
+       * Support Polygon Xy M
+       * @description Counter-clockwise convex hull of the contact samples in world XY.
+       */
+      support_polygon_xy_m?: [number, number][];
+      /**
+       * Full Base Polygon Xy M
+       * @description Counter-clockwise hull of every lowest underside sample, before clipping it to surfaces that are actually beneath the object. Comparing this with support_polygon_xy_m distinguishes overhang from an intrinsically bad COM.
+       */
+      full_base_polygon_xy_m?: [number, number][];
+      /**
+       * Evidence Source
+       * @description collision_proxy, obb_fallback, or unavailable for a legacy result.
+       * @default unavailable
+       */
+      evidence_source: string;
+      /**
+       * Resting On
+       * @description Nearest measured supporting object, or None for the floor.
+       */
+      resting_on?: string | null;
+      /** Contact Force Feasible */
+      contact_force_feasible: boolean;
+      /**
+       * Equilibrium Model
+       * @description contact_wrench_3d for current certificates; horizontal_support_2d for legacy or controlled benchmark results.
+       * @default horizontal_support_2d
+       */
+      equilibrium_model: string;
+      /**
+       * Wrench Contacts
+       * @description Actual initial MuJoCo contacts used by the 3-D equilibrium LP.
+       */
+      wrench_contacts?: components["schemas"]["WrenchContactEvidence"][];
+      /**
+       * Non Horizontal Contact Count
+       * @description Contacts whose normal is more than 30 degrees from world vertical.
+       * @default 0
+       */
+      non_horizontal_contact_count: number;
+      /**
+       * Support Margin M
+       * @description Signed XY distance from COM to the contact hull boundary. Positive is inside, negative is outside, zero is marginal.
+       */
+      support_margin_m: number;
+      /**
+       * Full Base Margin M
+       * @description Signed XY distance from COM to the object's complete base hull. Negative means translating the rigid object cannot make it balance.
+       * @default 0
+       */
+      full_base_margin_m: number;
+      /**
+       * Full Base Force Feasible
+       * @description Whether the complete base, on an unlimited flat support, could balance this centre of mass.
+       * @default false
+       */
+      full_base_force_feasible: boolean;
+      /**
+       * Support Coverage Ratio
+       * @description Fraction of sampled base points that currently have support contact.
+       * @default 0
+       */
+      support_coverage_ratio: number;
+      /** @default insufficient_geometry */
+      failure_kind: components["schemas"]["BalanceFailureKind"];
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * BalanceFailureKind
+     * @description Why the photographed pose does not admit the measured support wrench.
+     *
+     *     The distinction is actionable.  A partially supported object can be translated
+     *     farther onto its parent; an intrinsically imbalanced object cannot, because a
+     *     rigid translation moves its centre of mass and its own feet together.
+     * @enum {string}
+     */
+    BalanceFailureKind:
+      | "none"
+      | "partial_support"
+      | "intrinsic_imbalance"
+      | "no_contact"
+      | "insufficient_geometry"
+      | "contact_wrench_infeasible";
+    /** Body_create_job_api_jobs_post */
+    Body_create_job_api_jobs_post: {
+      /** Image */
+      image: string;
+    };
+    /**
+     * CameraPose
+     * @description Where the photo was taken from, in world coordinates.
+     *
+     *     Recoverable exactly rather than guessed: the reconstruction is built in camera
+     *     coordinates, so the camera sits at the origin of the frame reconcile rotates and
+     *     shifts. Its height above the floor falls out of the floor fit — on one room,
+     *     1.16 m, which is a plausible standing eye level and a free sanity check on the
+     *     plane.
+     *
+     *     The viewer opens from here so a reconstruction can be compared against the photo
+     *     it came from without the user hunting for the angle.
+     */
+    CameraPose: {
+      /**
+       * Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      position_m: [number, number, number];
+      /**
+       * Forward
+       * @description Unit view direction.
+       * @default [
+       *       0,
+       *       1,
+       *       0
+       *     ]
+       */
+      forward: [number, number, number];
+      /**
+       * Up
+       * @default [
+       *       0,
+       *       0,
+       *       1
+       *     ]
+       */
+      up: [number, number, number];
+      /**
+       * Vertical Fov Deg
+       * @description Derived from the intrinsics, so the framing matches.
+       * @default 60
+       */
+      vertical_fov_deg: number;
+    };
+    /**
+     * Certificate
+     * @description "Simulation-ready" as a checkable multi-axis contract rather than a vibe.
+     */
+    Certificate: {
+      /**
+       * Certificate Version
+       * @description Version of the certificate contract, independent of the API version.
+       * @default 1.2
+       */
+      certificate_version: string;
+      /**
+       * Generated At
+       * @description UTC time when the validators ran. None on legacy or unrun certificates.
+       */
+      generated_at?: string | null;
+      /**
+       * Scene Graph Sha256
+       * @description Hash of the exact serialized SceneGraph that was certified.
+       */
+      scene_graph_sha256?: string | null;
+      /**
+       * Collision Geometry Sha256
+       * @description Content hash of the collision meshes referenced by the scene graph.
+       */
+      collision_geometry_sha256?: string | null;
+      /** Simulator Name */
+      simulator_name?: string | null;
+      /** Simulator Version */
+      simulator_version?: string | null;
+      /**
+       * Axis Errors
+       * @description Axis to execution error. An axis listed here has status NOT_RUN.
+       */
+      axis_errors?: {
+        [key: string]: string;
+      };
+      /** @default not_run */
+      scale_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      balance_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      stability_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      inertial_status: components["schemas"]["AxisStatus"];
+      /** @default not_run */
+      cost_status: components["schemas"]["AxisStatus"];
+      /** Scale */
+      scale?: components["schemas"]["ScaleCheck"][];
+      /** Balance */
+      balance?: components["schemas"]["BalanceCheck"][];
+      /** Stability */
+      stability?: components["schemas"]["StabilityCheck"][];
+      /** Inertial */
+      inertial?: components["schemas"]["InertialCheck"][];
+      cost?: components["schemas"]["CostCheck"] | null;
+      /**
+       * Penetration Tolerance M
+       * @description Populated from Settings.max_penetration_m by the certify stage; recorded on the certificate so a stored result stays interpretable after the setting changes. Non-zero because mesh discretisation produces sub-millimetre contacts on surfaces flush by design, and a zero-tolerance check would fail every well-modelled object. Results are reported against this value so their sensitivity to it is visible.
+       * @default 0.002
+       */
+      penetration_tolerance_m: number;
+      /**
+       * Com Displacement Tolerance M
+       * @description From Settings.max_com_displacement_m, recorded for the same reason as the penetration tolerance.
+       * @default 0.01
+       */
+      com_displacement_tolerance_m: number;
+      /**
+       * Support Gap Tolerance M
+       * @description From Settings.max_support_gap_m — how far an object may sit from what it rests on before the scale axis calls it floating or sunk.
+       *
+       *     Added after a client reported an object as 'floating above its support by 0.9 mm (tolerance 2 mm)' when it passed the gap test outright at a 5 mm bar and had failed on containment instead. With no gap tolerance published the client had reached for `penetration_tolerance_m`, which is the closest number on the certificate and the wrong one.
+       * @default 0.005
+       */
+      support_gap_tolerance_m: number;
+      /**
+       * Prior Deviation Tolerance Sigma
+       * @description From Settings.max_prior_deviation_sigma. Published for the same reason: a client with no threshold to read invents one, and an invented cutoff disagrees with the axis it claims to explain.
+       * @default 3
+       */
+      prior_deviation_tolerance_sigma: number;
+      /**
+       * Orientation Drift Tolerance Deg
+       * @description From Settings.max_orientation_drift_deg. This is a gravity-relative tilt limit; yaw around world-up is deliberately excluded.
+       *
+       *     All thresholds are on the certificate so a reader can say *which* criterion a check failed on. Without them a client has to invent its own cutoffs, and one did: a floor lamp failing on 295 mm of displacement was also reported as overlapping its neighbour, because the client tested penetration against zero and the lamp had 4.7 micrometres of contact noise — rendered, after rounding, as 'overlaps another object by 0 mm'.
+       * @default 2
+       */
+      orientation_drift_tolerance_deg: number;
+      /**
+       * Linear Speed Tolerance M S
+       * @description From Settings.max_linear_speed_m_s. Applied to the COM rate over the filtered pose window rather than instantaneous solver velocity.
+       * @default 0.005
+       */
+      linear_speed_tolerance_m_s: number;
+      /**
+       * Angular Speed Tolerance Deg S
+       * @description From Settings.max_angular_speed_deg_s. Applied to filtered gravity-relative tilt rate, with world-up yaw ignored.
+       * @default 1
+       */
+      angular_speed_tolerance_deg_s: number;
+      /**
+       * Settle Minimum Seconds
+       * @description Minimum simulation duration before stability may finish early.
+       * @default 2
+       */
+      settle_minimum_seconds: number;
+      /**
+       * Settle Timeout Seconds
+       * @description Maximum simulation duration when the scene does not become quiet.
+       * @default 5
+       */
+      settle_timeout_seconds: number;
+      /**
+       * Settle Quiet Seconds
+       * @description Required continuous time below both speed tolerances.
+       * @default 0.5
+       */
+      settle_quiet_seconds: number;
+    };
+    /** CostCheck */
+    CostCheck: {
+      proxy_tier: components["schemas"]["ProxyTier"];
+      /** Mean Step Time Ms */
+      mean_step_time_ms: number;
+      /** Budget Ms */
+      budget_ms: number;
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * DepthObservation
+     * @description What stage 2 measured about one object, kept so stage 6 can be re-run.
+     *
+     *     Six numbers, and they are the entire depth input to the solve: `_residuals`
+     *     scores the object's world AABB centre and extent against these and reads
+     *     nothing else from the depth map. Storing them rather than the 4 MB map is what
+     *     makes a re-solve stateless — a user edit can be committed and the scene
+     *     re-fitted without the depth `.npy` and every mask PNG still being on disk under
+     *     the key that produced them.
+     *
+     *     In the **recentred world frame**, not the camera frame `reconcile.observe`
+     *     reports. Applying `world_offset_m` once here means a re-solve does not have to
+     *     know whether it has been applied already, which is the sort of thing that is
+     *     silently wrong in one direction.
+     */
+    DepthObservation: {
+      /** Centre M */
+      centre_m: [number, number, number];
+      /** Extent M */
+      extent_m: [number, number, number];
+    };
+    /**
+     * DimensionPrior
+     * @description Class-conditioned real-world size, with the uncertainty that makes it usable.
+     *
+     *     E_prior is a Mahalanobis term weighted by 1/sigma^2, so the per-axis sigma is
+     *     not decoration: it is what lets "dishwasher: 60 cm +/- 2 cm" outweigh
+     *     "chair: 50 cm +/- 20 cm" instead of both pulling equally. A scalar
+     *     confidence cannot express that, because the tightness is per axis — an
+     *     interior door is pinned in width and height and nearly free in depth.
+     */
+    DimensionPrior: {
+      /** Dims M */
+      dims_m: [number, number, number];
+      /**
+       * Sigma M
+       * @description Per-axis stddev. Feeds E_prior as 1/sigma^2.
+       */
+      sigma_m: [number, number, number];
+    };
+    /**
+     * ExportResult
+     * @description Paths relative to the storage directory, not absolute.
+     *
+     *     These are what a client fetches through the `/storage` mount, so it builds the
+     *     URL as `/storage/{path}`. Storing the absolute form would be unusable to a
+     *     browser and would break the moment the storage directory moves — which it does
+     *     between a developer's machine and a test's temp dir.
+     */
+    ExportResult: {
+      /** Mjcf Path */
+      mjcf_path?: string | null;
+      /** Gltf Path */
+      gltf_path?: string | null;
+    };
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components["schemas"]["ValidationError"][];
+    };
+    /** InertialCheck */
+    InertialCheck: {
+      /** Object Id */
+      object_id: string;
+      /** Mass Density Volume Consistent */
+      mass_density_volume_consistent: boolean;
+      /** Positive Definite */
+      positive_definite: boolean;
+      /** Triangle Inequality */
+      triangle_inequality: boolean;
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * InertialProperties
+     * @description Assigned from a class-conditioned density prior; mass and inertia derived.
+     *
+     *     mass_kg and inertia_diag are functions of density and the *scaled* mesh
+     *     volume, so they are recomputed whenever the solver moves a scale rather than
+     *     being fitted independently. volume_m3 is retained because the inertial
+     *     certification axis checks mass, density and volume against each other, and
+     *     it cannot do that if only two of the three survive.
+     */
+    InertialProperties: {
+      /** Density Kg M3 */
+      density_kg_m3: number;
+      /**
+       * Volume M3
+       * @description Enclosed volume of the **visual** mesh, not the collision proxy and not the bounding box. Measured on a dining table: the mesh encloses 0.064 m3, its convex hull 0.962 m3, its bounding box 1.013 m3 — so taking volume from the proxy gives a 15x mass error on any open shape. The two meshes exist for different purposes and this is the one that means mass.
+       */
+      volume_m3: number;
+      /** Mass Kg */
+      mass_kg: number;
+      /**
+       * Com M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      com_m: [number, number, number];
+      /**
+       * Inertia Diag
+       * @description Principal moments, part frame.
+       */
+      inertia_diag: [number, number, number];
+      /**
+       * Principal Axes
+       * @description Part frame -> principal frame (MuJoCo iquat).
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      principal_axes: [number, number, number, number];
+      /**
+       * Watertight
+       * @description False means volume, and therefore mass, is not trustworthy — trimesh will hand you a non-watertight mesh and a meaningless volume without complaining.
+       * @default false
+       */
+      watertight: boolean;
+    };
+    /** Intrinsics */
+    Intrinsics: {
+      /** Fx */
+      fx: number;
+      /** Fy */
+      fy: number;
+      /** Cx */
+      cx: number;
+      /** Cy */
+      cy: number;
+    };
+    /**
+     * JobState
+     * @enum {string}
+     */
+    JobState:
+      "pending" | "running" | "succeeded" | "needs_attention" | "failed";
+    /** JobStatus */
+    JobStatus: {
+      /** Id */
+      id: string;
+      state: components["schemas"]["JobState"];
+      /** Current Stage */
+      current_stage: string | null;
+      /** Stage Status */
+      stage_status: {
+        [key: string]: unknown;
+      };
+      /** Error */
+      error: string | null;
+      /** Scene Id */
+      scene_id: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Finished At */
+      finished_at: string | null;
+    };
+    /**
+     * Material
+     * @description Dominant surface material, which is what density is keyed on.
+     *
+     *     Coarse on purpose. A closed vocabulary is something a VLM judges reliably from
+     *     a photo, whereas a number in kg/m3 is not — so the model picks a bucket and
+     *     the density comes from a table.
+     * @enum {string}
+     */
+    Material:
+      | "wood"
+      | "metal"
+      | "plastic"
+      | "glass"
+      | "ceramic"
+      | "fabric"
+      | "stone"
+      | "paper"
+      | "other";
+    /**
+     * ObjectEdit
+     * @description A user edit. Every field is optional; whatever is set becomes a pinned
+     *     constraint held fixed while the rest of the scene re-solves around it.
+     */
+    ObjectEdit: {
+      /** Object Id */
+      object_id: string;
+      /** Scale */
+      scale?: number | null;
+      /** Position M */
+      position_m?: [number, number, number] | null;
+      /** Orientation */
+      orientation?: [number, number, number, number] | null;
+      /** Supported By */
+      supported_by?: string | null;
+      /** Mass Kg */
+      mass_kg?: number | null;
+    };
+    /** ObjectLabel */
+    ObjectLabel: {
+      /** Object Id */
+      object_id: string;
+      /** Category */
+      category: string;
+      /**
+       * @description Feeds the density prior. Only meaningful against a *mesh* volume: material density times a bounding-box volume overestimates open shapes by an order of magnitude. See app.pipeline.inertia.
+       * @default other
+       */
+      material: components["schemas"]["Material"];
+      /** @description Absent until there is a measured priors table to draw on. A VLM asked for metres is guessing, and a fabricated prior with an invented sigma is worse than none: E_prior weights by 1/sigma^2, so a made-up sigma is a made-up weight. While this is None, absolute scale rests entirely on metric depth — which is row 1 of the ablation, not a workaround. */
+      prior?: components["schemas"]["DimensionPrior"] | null;
+      /**
+       * Support Parent
+       * @description object_id of the supporting body, or None for the floor. The VLM supplies an initial guess; reconcile overrides it with measured contact once geometry exists, since by then it is observable rather than inferred.
+       */
+      support_parent?: string | null;
+    };
+    /**
+     * ObjectUncertainty
+     * @description High uncertainty is not failure. An object can be confidently wrong or
+     *     uncertainly fine, and those warrant different user responses — which is why
+     *     this is a separate channel from Certificate rather than a field on it.
+     *
+     *     Every field is optional because reporting confidence obligates calibrating
+     *     it, and an uncalibrated signal is better absent than shown.
+     */
+    ObjectUncertainty: {
+      /** Object Id */
+      object_id: string;
+      /** Scale Variance */
+      scale_variance?: number | null;
+      /** Depth Prior Disagreement M */
+      depth_prior_disagreement_m?: number | null;
+      /** Used Obb Fallback */
+      used_obb_fallback?: boolean | null;
+      /** Visible Surface Fraction */
+      visible_surface_fraction?: number | null;
+    };
+    /**
+     * ObjectVerdict
+     * @description What the reconstruction-verification pass decided about one object,
+     *     comparing a render of the posed scene against the original photo.
+     * @enum {string}
+     */
+    ObjectVerdict: "ok" | "duplicate" | "external";
+    /**
+     * ObjectVerification
+     * @description One object's verdict, kept whether or not it survives — a removal with no
+     *     visible reason is not something anyone could check later.
+     */
+    ObjectVerification: {
+      /** Object Id */
+      object_id: string;
+      verdict: components["schemas"]["ObjectVerdict"];
+      /**
+       * Duplicate Of
+       * @description The object_id it duplicates, when verdict is DUPLICATE.
+       */
+      duplicate_of?: string | null;
+      /**
+       * Reason
+       * @description What the model saw, for debugging.
+       * @default
+       */
+      reason: string;
+    };
+    /**
+     * PartGeometry
+     * @description One rigid piece of an object.
+     *
+     *     Most objects are a single part. The hierarchy exists because a reconstruction
+     *     can come back as several rigidly-attached pieces — a lamp base and its shade —
+     *     and keeping them separate gives the collision proxy something better than one
+     *     box around the union.
+     */
+    PartGeometry: {
+      /** Part Id */
+      part_id: string;
+      /** Name */
+      name: string;
+      /** Parent Part Id */
+      parent_part_id?: string | null;
+      /** Visual Mesh Path */
+      visual_mesh_path?: string | null;
+      /**
+       * Source Mesh Path
+       * @description The mesh as reconstruction returned it, before decimation.
+       *
+       *     `visual_mesh_path` is what the browser downloads and is decimated to fit `max_mesh_faces`; decimation opens the surface, and a repair pass does not close it again. So the file the viewer gets is not the file physics should be built from, and building physics from it made a visual budget decide a physical fact: measured on `room2.png`, an armchair that crossed the face cap came out with no collision geometry under its lower 27.9%, fell 589 mm, and took the pillow on it down 992 mm.
+       *
+       *     Kept so `inertia` can decompose and weigh the closed original while the viewer keeps the small one. None on the OBB fallback path, and on meshes that never needed decimating — there the visual mesh *is* the original.
+       */
+      source_mesh_path?: string | null;
+      /** Collision Mesh Paths */
+      collision_mesh_paths?: string[];
+      /** @default obb */
+      proxy_tier: components["schemas"]["ProxyTier"];
+      /**
+       * Dims M
+       * @description Extent at unit object scale; multiply by SceneObject.scale.
+       */
+      dims_m: [number, number, number];
+      /**
+       * Origin M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      origin_m: [number, number, number];
+      /**
+       * Source Volume M3
+       * @description Enclosed volume measured on the mesh **as reconstructed**, before decimation. Mass is computed from this rather than from the stored file: decimation is what makes a 22 MB mesh shippable, but it breaks watertightness, and trimesh's volume is only meaningful on a closed surface. Measured on one object — 1.1M faces to 20k changed the volume by 0.18%, so the loss is in the guarantee, not the number.
+       */
+      source_volume_m3?: number | null;
+      /**
+       * Source Watertight
+       * @description Whether the mesh was closed *before* decimation, and so whether `source_volume_m3` can be trusted. Pessimistic by default.
+       * @default false
+       */
+      source_watertight: boolean;
+      inertial?: components["schemas"]["InertialProperties"] | null;
+      /**
+       * Visible Surface Fraction
+       * @description Observed fraction of the part's extent. Single-view depth sees the front shell only, so the rest is amodal inference. v2 uncertainty signal.
+       */
+      visible_surface_fraction?: number | null;
+    };
+    /**
+     * PhysicsBundle
+     * @description Everything the browser needs to compile this scene in MuJoCo, in one request.
+     *
+     *     The frontend runs the same MuJoCo — `@mujoco/mujoco` 3.11.0 against the
+     *     backend's 3.11.0 — over this exact MJCF, which is what lets it certify an edit
+     *     locally instead of approximating the server. `mjcf.build_xml` names mesh assets
+     *     by bare filename precisely so a consumer without a filesystem can satisfy them;
+     *     `meshes` maps each of those names to the URL to fetch it from.
+     *
+     *     One request rather than letting the client discover 109 asset URLs by parsing
+     *     the XML: the naming is `mjcf`'s business and a second implementation of it in
+     *     TypeScript would be one more thing to keep in step.
+     */
+    PhysicsBundle: {
+      /** Mjcf */
+      mjcf: string;
+      /**
+       * Meshes
+       * @description Mesh asset filename, as it appears in the MJCF, to its `/storage`-relative URL.
+       */
+      meshes: {
+        [key: string]: string;
+      };
+    };
+    /**
+     * PhysicsPreviewRequest
+     * @description Uncommitted object edits to apply to an ephemeral MuJoCo scene.
+     *
+     *     The graph is cloned and never solved, certified, exported, or stored. This is
+     *     intentionally narrower than ``SceneEditRequest``: anchors and repair choices
+     *     have no meaning when the user is asking "what happens if I release exactly
+     *     what is on screen?"
+     */
+    PhysicsPreviewRequest: {
+      /** Objects */
+      objects?: components["schemas"]["ObjectEdit"][];
+    };
+    /**
+     * Provenance
+     * @description Where a value came from. Reported per field.
+     *
+     *     USER is the load-bearing one: a user-pinned value is held fixed while
+     *     everything else re-solves around it, so the solver reads this to decide
+     *     which variables are free.
+     * @enum {string}
+     */
+    Provenance: "model" | "derived" | "balance_inferred" | "user" | "fallback";
+    /**
+     * ProxyTier
+     * @description Collision-geometry fidelity.
+     *
+     *     Describes the *collision* representation specifically, which stays OBB until the
+     *     inertia stage runs CoACD over the visual mesh. Whether reconstruction succeeded
+     *     is a separate question, answered by `PartGeometry.visual_mesh_path` being set —
+     *     an object can have a real mesh and still be colliding as a box.
+     * @enum {string}
+     */
+    ProxyTier: "obb" | "convex_hull" | "decomposed";
+    /**
+     * RepairAction
+     * @description The magnitude and the axis repaired are both recorded, because choosing a
+     *     correction badly discards information silently and that is the failure mode
+     *     worth engineering against.
+     */
+    RepairAction: {
+      kind: components["schemas"]["RepairKind"];
+      /** Target Id */
+      target_id: string;
+      /** Axis Repaired */
+      axis_repaired: string;
+      /**
+       * Delta Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      delta_position_m: [number, number, number];
+      /**
+       * Delta Com M
+       * @description For INFER_BALANCED_COM: object-frame shift applied to every part COM. It is reported separately from position because the visible object does not move; the inferred internal mass distribution does.
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      delta_com_m: [number, number, number];
+      /**
+       * Delta Scale
+       * @default 1
+       */
+      delta_scale: number;
+      /**
+       * New Parent Id
+       * @description For REPARENT: the object this should have been recorded as resting on. Distinct from a position change because nothing moves — the geometry was right and the bookkeeping was wrong.
+       */
+      new_parent_id?: string | null;
+      /**
+       * Magnitude
+       * @description Size of the correction, for minimality.
+       * @default 0
+       */
+      magnitude: number;
+      /**
+       * Improved
+       * @description Whether revalidation actually got better. A repair that made things worse is discarded rather than reported.
+       * @default true
+       */
+      improved: boolean;
+    };
+    /**
+     * RepairKind
+     * @description One per way a scene can fail.
+     *
+     *     The pairing is the point. A criterion the certificate can fail on with no
+     *     strategy able to address it produces a scene that is reported broken and cannot
+     *     be acted on — measured on `room2.png`, four of five failing objects were outside
+     *     their contact polygon, `snap_to_support` moves only in z, and repair proposed a
+     *     single action for the whole scene and rejected it. `test_repair` asserts the
+     *     pairing so a new criterion cannot land without one.
+     * @enum {string}
+     */
+    RepairKind:
+      | "snap_to_support"
+      | "slide_onto_support"
+      | "recenter_on_support"
+      | "infer_balanced_com"
+      | "reparent"
+      | "resolve_penetration"
+      | "rescale"
+      | "upgrade_proxy_tier";
+    /** RepairResponse */
+    RepairResponse: {
+      scene: components["schemas"]["SceneEnvelope"];
+      /** Actions */
+      actions: components["schemas"]["RepairAction"][];
+      /** Converged */
+      converged: boolean;
+      /** Rounds Used */
+      rounds_used: number;
+    };
+    /**
+     * ScaleAnchor
+     * @description A user-supplied true dimension: E_prior with sigma -> 0, i.e. a hard constraint.
+     *
+     *     One anchor usually settles the whole scene, which is a consequence of the
+     *     coupled formulation rather than a coincidence — absolute scale is a single
+     *     global degree of freedom, and support and contact constraints propagate it
+     *     outward. Propagation reaches only as far as the constraint graph is
+     *     connected; an object with no contacts and no support parent gains nothing.
+     */
+    ScaleAnchor: {
+      /** Object Id */
+      object_id: string;
+      /**
+       * Axis
+       * @description 0 = width, 1 = height, 2 = depth.
+       */
+      axis: number;
+      /** Value M */
+      value_m: number;
+    };
+    /** ScaleCheck */
+    ScaleCheck: {
+      /** Object Id */
+      object_id: string;
+      /**
+       * Deviation Sigma
+       * @description Per-axis (fitted - prior) / sigma.
+       */
+      deviation_sigma: [number, number, number];
+      /**
+       * Support Gap M
+       * @description Signed gap on the support contact. Negative is penetration.
+       * @default 0
+       */
+      support_gap_m: number;
+      /**
+       * Touching Parent
+       * @description Whether the object meets the thing it is *recorded* as resting on, anywhere, within the penetration tolerance.
+       *
+       *     Split from `support_gap_m` because the two answer different questions and folding them together made both wrong. The gap is geometry — is this floating, buried, or resting — and it is measured against whatever lies beneath the object, which in a real scene is often more than one thing: an armchair with three legs on a rug and one on the floor is ordinary and stable, and so is a book overlapping another book by most of its face.
+       *
+       *     This is semantics: a book that fell from its table to the floor has a perfect gap and is perfectly stable, and is still in the wrong place. Only a check that names the table can say so.
+       * @default true
+       */
+      touching_parent: boolean;
+      /**
+       * Resting On
+       * @description What the object is actually nearest to resting on, which need not be `SceneObject.supported_by`. None means the floor. Recorded because a disagreement between the two is the single most useful thing to know when a scene looks right and certifies wrong.
+       */
+      resting_on?: string | null;
+      /**
+       * Base Inside Parent
+       * @default true
+       */
+      base_inside_parent: boolean;
+      /**
+       * Contact Constrained
+       * @description Whether a feasible non-horizontal contact with the declared parent makes horizontal base containment inapplicable (for example an object leaning against the inside wall of a container).
+       * @default false
+       */
+      contact_constrained: boolean;
+      /**
+       * Passed
+       * @default true
+       */
+      passed: boolean;
+    };
+    /** SceneEditRequest */
+    SceneEditRequest: {
+      /** Objects */
+      objects?: components["schemas"]["ObjectEdit"][];
+      /** Anchors */
+      anchors?: components["schemas"]["ScaleAnchor"][];
+      /**
+       * Resolve
+       * @description Re-run stage 6 with the edits pinned, then re-certify. False stores the submitted pose exactly (used for paused browser physics), while still refreshing geometric support relationships and re-certifying it.
+       * @default true
+       */
+      resolve: boolean;
+    };
+    /**
+     * SceneEditResponse
+     * @description The committed scene, plus every structural correction made along the way.
+     *
+     *     The actions are not decoration. A commit now repairs as well as re-solves, and
+     *     a repair that moved an object without saying so is the silent-change problem
+     *     the endpoint used to avoid by not repairing at all. Reported here so the client
+     *     can show what a drag actually cost — including the proposals that were tried
+     *     and reverted, which `RepairAction.improved` distinguishes.
+     *
+     *     Support changes are separate because re-deriving a stale parent happens before
+     *     repair.  It is a consequence of the edit, not a repair proposal, but it is still
+     *     a graph change the user should be told about.
+     */
+    SceneEditResponse: {
+      scene: components["schemas"]["SceneEnvelope"];
+      /** Actions */
+      actions: components["schemas"]["RepairAction"][];
+      /** Support Changes */
+      support_changes: components["schemas"]["SupportChange"][];
+    };
+    /**
+     * SceneEnvelope
+     * @description A spec plus the row metadata a client needs but the spec does not carry.
+     *
+     *     `updated_at` is here because the exported `scene.glb` is rewritten in place at
+     *     the same URL every time a scene changes. Without a version to hang off the
+     *     request the browser serves its cached copy, and a repair looks like it did
+     *     nothing.
+     */
+    SceneEnvelope: {
+      spec: components["schemas"]["SceneSpec"];
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+    };
+    /** SceneGraph */
+    SceneGraph: {
+      /** Objects */
+      objects: components["schemas"]["SceneObject"][];
+      camera?: components["schemas"]["CameraPose"] | null;
+      /**
+       * Floor Height M
+       * @default 0
+       */
+      floor_height_m: number;
+      /**
+       * World Offset M
+       * @description Translation already applied to bring the scene's horizontal centre onto the origin.
+       *
+       *     Reconstruction happens in camera coordinates, so the untranslated origin is wherever the photographer stood and a scene lands somewhere different for every photo. That is correct and unhelpful: a viewer with one fixed camera, and a user comparing two reconstructions, both want the scene in the same place. Recording the offset rather than discarding it keeps the frames relatable — `solve` measures against depth observations that are still in camera coordinates, and has to undo this to compare like with like.
+       *
+       *     Horizontal only. Z is the floor, fixed by the plane fit and shared with MJCF's ground plane, so shifting it would put objects above a floor that does not move.
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      world_offset_m: [number, number, number];
+      /**
+       * Gravity Rotation
+       * @description Rotation applied in stage 5 to bring the fitted floor plane world-down. Everything after this assumes gravity along -Z.
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      gravity_rotation: [number, number, number, number];
+    };
+    /**
+     * SceneObject
+     * @description One object in the canonical, gravity-aligned scene graph.
+     *
+     *     scale, position_m and orientation are exactly the stage-6 decision variables.
+     *     Provenance decides which of them are free.
+     */
+    SceneObject: {
+      /** Provenance */
+      provenance?: {
+        [key: string]: components["schemas"]["Provenance"];
+      };
+      /** Object Id */
+      object_id: string;
+      label: components["schemas"]["ObjectLabel"];
+      frame: components["schemas"]["AssetFrame"];
+      /** Parts */
+      parts: components["schemas"]["PartGeometry"][];
+      /**
+       * Scale
+       * @description Isotropic. The s_i of stage 6.
+       * @default 1
+       */
+      scale: number;
+      /**
+       * Position M
+       * @default [
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      position_m: [number, number, number];
+      /**
+       * Orientation
+       * @default [
+       *       1,
+       *       0,
+       *       0,
+       *       0
+       *     ]
+       */
+      orientation: [number, number, number, number];
+      /**
+       * Supported By
+       * @description object_id of the supporting body, or None for the floor.
+       */
+      supported_by?: string | null;
+      /** @description What depth measured for this object, carried so stage 6 can be re-run without the depth map. Absent on hand-authored scenes, which have no measurement behind them — the solver then has no `E_depth` term for the object and relies on contact alone. */
+      observation?: components["schemas"]["DepthObservation"] | null;
+      /**
+       * Degradation Reason
+       * @description Why this object came back worse than intended, when it did — reconstruction failed and it fell back to a box, say. Shown in the viewer, because 'we could not reconstruct this' is a different message to the user than 'this reconstructed but fails certification'.
+       */
+      degradation_reason?: string | null;
+    };
+    /**
+     * SceneOutcome
+     * @description Whether a completed pipeline run produced a scene ready for use.
+     *
+     *     This is deliberately separate from process success.  A run can execute every
+     *     stage and still finish with a non-converged optimiser, a pose that moves under
+     *     gravity, or a failed certificate.  Such a scene is retained for inspection and
+     *     editing, but it is a draft rather than a successful physical reconstruction.
+     * @enum {string}
+     */
+    SceneOutcome: "ready" | "needs_attention";
+    /** SceneSpec */
+    SceneSpec: {
+      /** Scene Id */
+      scene_id: string;
+      /**
+       * Image Path
+       * @description Source-image path relative to the private storage directory. Kept for provenance and pipeline re-runs; it is not a public asset URL.
+       */
+      image_path: string;
+      intrinsics: components["schemas"]["Intrinsics"];
+      graph: components["schemas"]["SceneGraph"];
+      certificate?: components["schemas"]["Certificate"];
+      /** Anchors */
+      anchors?: components["schemas"]["ScaleAnchor"][];
+      weights?: components["schemas"]["SolveWeights"];
+      diagnostics?: components["schemas"]["SolveDiagnostics"];
+      /** Repairs Applied */
+      repairs_applied?: components["schemas"]["RepairAction"][];
+      /** @default needs_attention */
+      outcome: components["schemas"]["SceneOutcome"];
+      /** Outcome Reasons */
+      outcome_reasons?: string[];
+      /**
+       * Removed Objects
+       * @description Objects the verification stage dropped as external or duplicated, with the reasoning — the auditable record of what reconstruction produced that this scene does not.
+       */
+      removed_objects?: components["schemas"]["ObjectVerification"][];
+      exports?: components["schemas"]["ExportResult"];
+      /** Uncertainty */
+      uncertainty?: components["schemas"]["ObjectUncertainty"][];
+    };
+    /** SceneSummary */
+    SceneSummary: {
+      /** Id */
+      id: string;
+      /** Name */
+      name: string;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+      /** Object Count */
+      object_count: number;
+      /** Certified */
+      certified: boolean;
+      outcome: components["schemas"]["SceneOutcome"];
+      /** Outcome Reasons */
+      outcome_reasons: string[];
+      /** Axes */
+      axes: {
+        [key: string]: components["schemas"]["AxisStatus"];
+      };
+    };
+    /**
+     * SolveDiagnostics
+     * @description What stage 6's block-coordinate loop did, and how far it got.
+     *
+     *     `converged` and `settled` are separate because they answer different questions
+     *     and one used to mask the other. A single flag reported `False` on a scene where
+     *     the optimiser was converging cleanly — 199, 40, 16, 7 mm per round — purely
+     *     because one floor lamp fell over, which reads as "the solve failed" when the
+     *     solve was working and the *reconstruction* was unstable.
+     */
+    SolveDiagnostics: {
+      /**
+       * Iterations
+       * @default 0
+       */
+      iterations: number;
+      /**
+       * Converged
+       * @description The optimiser reached a fixed point: a round moved every variable by less than the round tolerance. About the solve, not the scene.
+       * @default false
+       */
+      converged: boolean;
+      /**
+       * Settled
+       * @description The solved pose is already the equilibrium — settling the scene under gravity moves nothing by more than the round tolerance.
+       *
+       *     Stricter than 'the objects stop moving', and deliberately. A toppled lamp lying still has stopped moving: measured, it is motionless from t=3.5 s and 844 mm from where the solver put it. That scene is *stable*; it is not *correct*. Simulation-ready means the MJCF loads and nothing jumps, which is the same thing the stability axis asks with `max_com_displacement_m`.
+       * @default false
+       */
+      settled: boolean;
+      /**
+       * Max Settle Drift M
+       * @description Furthest any object moves between its solved and settled pose. The scene-wide maximum, so one unstable object dominates it — which is why it is reported as a number rather than only as the flag above.
+       * @default 0
+       */
+      max_settle_drift_m: number;
+      /**
+       * Residual By Term
+       * @description Final E_depth, E_prior, E_sil, E_supp, E_pen.
+       */
+      residual_by_term?: {
+        [key: string]: number;
+      };
+      /**
+       * Scale Variance
+       * @description Inverse-Hessian diagonal at convergence, per object. Falls out of choosing Gauss-Newton for the smooth block; it is v2's primary confidence signal and the answer to which objects an anchor never reached.
+       */
+      scale_variance?: {
+        [key: string]: number;
+      };
+    };
+    /**
+     * SolveWeights
+     * @description The lambdas of stage 6's objective.
+     */
+    SolveWeights: {
+      /**
+       * Depth
+       * @default 1
+       */
+      depth: number;
+      /**
+       * Prior
+       * @default 1
+       */
+      prior: number;
+      /**
+       * Silhouette
+       * @default 0.5
+       */
+      silhouette: number;
+      /**
+       * Support
+       * @description Weight on the signed support gap.
+       *
+       *     Has to outweigh depth on the vertical axis, and by more than it looks: depth contributes six residuals per object — three for the centre, three for the extent — against one for support, so parity of *weights* is a six-to-one loss for contact. At 2.0 a reconstructed side table settled 17.8 mm clear of the rug it rests on, against a 5 mm tolerance, because the depth measurement wanted it higher and outvoted the contact.
+       *
+       *     Raised to 8.0 on the measurement: table gap 17.8 mm -> 5.1 mm, and the depth term's own cost rose only 0.374 -> 0.406, about 10%. Contact is bought cheaply because the two measurements disagree along one axis only. 30.0 buys a further 5.1 -> 3.1 mm for no extra depth cost and 100.0 buys nothing more, so this sits at the knee rather than at the floor — a contact constraint that overrode depth entirely would be discarding the measurement the whole pipeline exists to make.
+       * @default 8
+       */
+      support: number;
+      /**
+       * Penetration
+       * @description Weight on pairwise overlap depth.
+       *
+       *     Raised from 5.0 on measurement. At 5.0 it was outvoted the same way `support` was before its own raise — depth contributes six residuals per object against one per *pair* here — and the overlap it left was the thing physics could not survive: a 14.5 mm book-on-book overlap ejected a 0.158 kg book at 16.7 m/s. Swept on `room2.png`, worst overlap and settle drift both improve to 20 and both get worse past it:
+       *
+       *         weight   worst overlap   settle drift
+       *              5         7.5 mm        2601 mm
+       *             20         4.5 mm        1768 mm
+       *             60        43.5 mm        2554 mm
+       *
+       *     60 overshoots — pushing one pair apart drives each of them into something else — so this sits at the minimum rather than at the top of the range. `room1.png` certifies on all four axes at both 5 and 20 with identical settle drift, so the raise costs nothing on a scene that was already sound.
+       * @default 20
+       */
+      penetration: number;
+      /**
+       * Containment
+       * @description Weight on how far a supported object's footprint centre sits *outside* its support.
+       *
+       *     The support term is signed but vertical — it closes the gap to whatever an object rests on and says nothing about staying over it. So nothing in the objective resisted lateral drift, and depth is free to slide a child off its parent at no cost. Measured on `room2.png`: between reconcile and solve, four objects on the side table moved 314, 904, 1007 and 1225 mm sideways while keeping the same `supported_by`, and seven of nine scale failures were objects at the right height (gap under 3 mm against a 5 mm bar) that were no longer over anything. Floor-standing objects moved 0.0-0.8 mm over the same solve, which is what a term acting only on supported objects looks like when it is missing.
+       *
+       *     One-sided and zero inside, exactly like penetration: an object over its support pays nothing, so this cannot distort a scene that was already right. Measured on the footprint *centre* against the parent's AABB, because that is the criterion `certify.scale` reports — a laptop overhanging a side table by one corner is resting on it, and requiring full containment would fail it.
+       *
+       *     **Off by default. Swept three times, off after each.**
+       *
+       *     The third sweep is the one that settles it, because the two objections the earlier ones raised have both since been answered elsewhere: the target is `nearest_support_xy`, a real occupied column of the parent rather than its AABB, and the support *gap* is now `gap_to`, probed on the child's own underside rather than on bounding-box corners. Neither of the old excuses survives, and the term still does not pay. Swept on `room2`:
+       *
+       *         weight   not-over-support   worst overlap   settle drift
+       *              0         5/16            17.3 mm        11094 mm
+       *              5         5/16            15.2 mm         5925 mm
+       *             10         6/16            15.7 mm         1840 mm
+       *             20         8/16             7.2 mm         1927 mm
+       *             40         6/16            44.7 mm         1049 mm
+       *
+       *     `not-over-support` is the number this term exists to reduce and it goes *up*, non-monotonically, peaking at the weight where overlap happens to look best. That is not a knee to tune to, it is noise.
+       *
+       *     **It is not that the term does nothing — it is that repair does it better.** Scoped to one object, which is how an edit actually runs it, containment works: `room2`'s plate moves from y=0.719 to y=0.578, inside the side table's y span, at every weight from 5 up. But `base_inside_parent` stays False throughout, because being over a surface in plan view is not resting on it, and a lateral term cannot close a vertical gap. Repair closes both — `_slide_onto_support` moves the plate 228 mm onto the table and `_snap_to_support` then drops it the last 2 mm — and since repair now runs on every commit, that path reaches the same objects without the scene-wide cost above.
+       *
+       *     Revisit if repair's scoping ever stops covering the case, or if a scene appears where an object leaves its support without any certificate check firing. Until then this is a term that is right in principle, correct in isolation, and dominated in practice.
+       *
+       *     The second reason it was off, kept because the trade it describes is real:
+       *
+       *     Aimed at the parent's AABB it drove objects into concave parents, so it was re-aimed at the nearest point with real surface under it once the height grid could answer that. Swept again on `room2.png` it still trades one axis for another, now by colliding the object with its neighbours on the way:
+       *
+       *         weight   not-over-support   worst overlap   settle drift
+       *              0         4/17             8.1 mm         2219 mm
+       *             10         2/17            43.5 mm         8183 mm
+       *             40         2/17           105.4 mm         3169 mm
+       *
+       *     It buys two objects their support and costs an order of magnitude of overlap. The pull is only as good as the query under it, and that query still places its probes on the child's *bounding box* rather than on the child's own contact geometry — measured on the side table, a pedestal whose contact patch is 0.107 x 0.037 m inside a 0.56 x 0.58 m footprint, so 99% of what gets probed is the empty air under a round top. Fix the probe placement before believing another sweep of this weight.
+       *
+       *     *Since resolved, and it did not rescue the term.* `SupportHeights.gap_to` now probes the child's own underside points, so the pedestal case is measured correctly — and the third sweep above, run afterwards, is worse than this one. The probes were a real defect; they were not what was holding this weight down.
+       *
+       *     The first reason it was off, kept because the trade it describes is real:
+       *
+       *     The target is the parent's AABB, and a bookshelf's AABB is mostly solid shelf — so pulling a vase's centre 'inside' it drives the vase into the structure. Swept on `room2.png`, against the scene entering solve with no overlap at all:
+       *
+       *         weight   vase buried   not-over-support   settle drift
+       *              0       0.00 mm           6/15           1237 mm
+       *              8       4.95 mm           4/15           1568 mm
+       *             20      20.62 mm           3/15           1731 mm
+       *             60      34.03 mm           1/15           2358 mm
+       *
+       *     It buys the scale axis by paying the stability axis, monotonically, and settling degrades at every step — the 34 mm burial is what MuJoCo ejects at 15.9 m/s before diverging. The term itself is right and its unit tests hold on a flat support; what is wrong is the target. It should pull toward the parent's *supporting surface*, not its bounding box, and today's `SupportHeights` cannot express that — a top-down heightfield keeps one height per column, so it cannot represent a shelf with anything under it. Turn this on once support is a surface rather than a heightfield.
+       *
+       *     For the record, on a flat support the weight sweep was clean: 60.0 is the floor rather than the knee, which is the opposite of how `support` is tuned, and for a reason that does not apply there. Swept against depth wrong by 0.8 m, the residual offset goes 311 mm at 0, then 10.8, 2.8, 0.7, 0.2 and 0.0 mm at 4, 8, 16, 30 and 60 — while the depth term's own cost sits at 0.043 from 4 upward and never moves again. `base_inside_parent` is a boolean, so a term that leaves 0.7 mm outside has not fixed the check it exists to fix, and there is no repair strategy for containment to finish the job — `_snap_to_support` only translates in z. Weighting `support` this hard would override depth on every object because it is signed and always active; this one is inert until an object has already left its support, so buying the boolean outright costs nothing on a scene that was placed correctly.
+       * @default 0
+       */
+      containment: number;
+    };
+    /** StabilityCheck */
+    StabilityCheck: {
+      /** Object Id */
+      object_id: string;
+      /**
+       * Com Displacement M
+       * @description Maximum COM displacement observed anywhere in the settling window.
+       */
+      com_displacement_m: number;
+      /**
+       * Orientation Drift Deg
+       * @description Maximum gravity-relative tilt observed anywhere in the settling window. Rotation around world-up is ignored because yaw does not make an object tip.
+       */
+      orientation_drift_deg: number;
+      /**
+       * Initial Penetration M
+       * @description Measured at t=0. Once the solver starts pushing bodies apart the overlap is gone and the reconstruction error that caused it is unobservable.
+       */
+      initial_penetration_m: number;
+      /**
+       * Penetration Against
+       * @description What the deepest overlap is with: another object's id, or `"floor"`. None when there is no overlap.
+       *
+       *     Recorded because the depth alone does not say what to do about it. Sunk into the ground and interpenetrating a neighbour are different reconstruction errors with different fixes, and a reader told only "overlaps another object" will go looking through the object list for a collision that is with the floor.
+       */
+      penetration_against?: string | null;
+      /**
+       * Terminal Linear Speed M S
+       * @description COM translation rate estimated from pose change across the final filtered settling window, not instantaneous MuJoCo qvel.
+       * @default 0
+       */
+      terminal_linear_speed_m_s: number;
+      /**
+       * Terminal Angular Speed Deg S
+       * @description Gravity-relative tilt rate estimated across the final filtered settling window. World-up yaw is ignored.
+       * @default 0
+       */
+      terminal_angular_speed_deg_s: number;
+      /**
+       * Quiet Duration S
+       * @description Continuous time immediately before the end of the simulation during which both filtered pose-rate limits held.
+       * @default 0
+       */
+      quiet_duration_s: number;
+      /**
+       * Simulation Time S
+       * @description How long MuJoCo was stepped before this result was recorded.
+       * @default 0
+       */
+      simulation_time_s: number;
+      /**
+       * Settled
+       * @description Whether both speed limits held continuously for the required quiet interval. Legacy checks default to true because they did not record velocity evidence.
+       * @default true
+       */
+      settled: boolean;
+      /** Passed */
+      passed: boolean;
+    };
+    /**
+     * SupportChange
+     * @description A support edge changed while committing an edit.
+     *
+     *     ``None`` is the floor in both fields.  Returning both ends makes automatic
+     *     re-parenting visible to the user instead of leaving them to infer it from the
+     *     final object list.
+     */
+    SupportChange: {
+      /** Object Id */
+      object_id: string;
+      /** Previous Support Id */
+      previous_support_id: string | null;
+      /** New Support Id */
+      new_support_id: string | null;
+    };
+    /** ValidationError */
+    ValidationError: {
+      /** Location */
+      loc: (string | number)[];
+      /** Message */
+      msg: string;
+      /** Error Type */
+      type: string;
+      /** Input */
+      input?: unknown;
+      /** Context */
+      ctx?: Record<string, never>;
+    };
+    /**
+     * WrenchContactEvidence
+     * @description One initial MuJoCo contact used by the general equilibrium check.
+     */
+    WrenchContactEvidence: {
+      /** Position M */
+      position_m: [number, number, number];
+      /**
+       * Normal M
+       * @description Unit normal force direction acting into the inspected object.
+       */
+      normal_m: [number, number, number];
+      /**
+       * Other Object Id
+       * @description Object on the other side, or None for the static world.
+       */
+      other_object_id?: string | null;
+      /**
+       * Friction
+       * @description MuJoCo sliding-1, sliding-2, torsional, rolling-1 and rolling-2 friction coefficients used by the wrench cone.
+       */
+      friction: [number, number, number, number, number];
+      /**
+       * Dimensions
+       * @description Active MuJoCo contact dimension: 1, 3, 4, or 6. Torsional friction requires at least 4 and rolling friction requires 6.
+       * @default 3
+       */
+      dimensions: number;
+      /**
+       * Distance M
+       * @description Signed MuJoCo contact distance; negative values are penetration.
+       */
+      distance_m: number;
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    create_job_api_jobs_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_create_job_api_jobs_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  create_job_api_jobs_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    get_job_api_jobs__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobStatus"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "multipart/form-data": components["schemas"]["Body_create_job_api_jobs_post"];
+      };
     };
-    list_scenes_api_scenes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneSummary"][];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["JobStatus"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
-    get_scene_api_scenes__scene_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneEnvelope"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  get_job_api_jobs__job_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        job_id: string;
+      };
+      cookie?: never;
     };
-    edit_scene_api_scenes__scene_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SceneEditRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["JobStatus"];
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneEditResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
-    scene_physics_api_scenes__scene_id__physics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhysicsBundle"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  list_scenes_api_scenes_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    preview_scene_physics_api_scenes__scene_id__physics_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PhysicsPreviewRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["SceneSummary"][];
         };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhysicsBundle"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+      };
     };
-    repair_scene_api_scenes__scene_id__repair_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepairResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  get_scene_api_scenes__scene_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
     };
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["SceneEnvelope"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
+  };
+  edit_scene_api_scenes__scene_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SceneEditRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SceneEditResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  scene_physics_api_scenes__scene_id__physics_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PhysicsBundle"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  preview_scene_physics_api_scenes__scene_id__physics_preview_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PhysicsPreviewRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PhysicsBundle"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  repair_scene_api_scenes__scene_id__repair_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        scene_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RepairResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  health_health_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: string;
+          };
+        };
+      };
+    };
+  };
 }

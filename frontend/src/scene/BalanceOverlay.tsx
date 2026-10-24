@@ -3,17 +3,21 @@ import { useMemo } from "react";
 import * as THREE from "three";
 
 import type { BalanceCheck } from "../api/client";
+import { type Theme, themeToken } from "../theme";
 
-const CONTACT_COLOUR = "#f4b942";
-const WRENCH_COLOUR = "#45c2d8";
-const COM_COLOUR = "#d66cff";
-const PASS_COLOUR = "#4caf7d";
-const FAIL_COLOUR = "#d94b4b";
 const CONTACT_RADIUS_M = 0.006;
 const COM_RADIUS_M = 0.014;
 
 type Point2 = [number, number];
 type Point3 = [number, number, number];
+
+interface EvidenceColours {
+  contact: string;
+  wrench: string;
+  com: string;
+  pass: string;
+  fail: string;
+}
 
 // Debug geometry must never steal a click from the scene mesh beneath it.
 function ignoreRaycast() {}
@@ -32,8 +36,7 @@ function closestOnSegment(point: Point2, start: Point2, end: Point2): Point2 {
     0,
     Math.min(
       1,
-      ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) /
-        lengthSquared,
+      ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared,
     ),
   );
   return [start[0] + t * dx, start[1] + t * dy];
@@ -74,7 +77,13 @@ function polygonGeometry(polygon: Point2[], height: number) {
   return geometry;
 }
 
-function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
+function ObjectBalanceEvidence({
+  check,
+  colours,
+}: {
+  check: BalanceCheck;
+  colours: EvidenceColours;
+}) {
   const contacts = (check.contact_points_m ?? []) as Point3[];
   const wrenchContacts = check.wrench_contacts ?? [];
   const polygon = useMemo(
@@ -94,7 +103,7 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
   if (!centre) return null;
   const projection: Point3 = [centre[0], centre[1], supportHeight];
   const nearest = closestOnPolygon([centre[0], centre[1]], polygon);
-  const verdictColour = check.passed ? PASS_COLOUR : FAIL_COLOUR;
+  const verdictColour = check.passed ? colours.pass : colours.fail;
 
   return (
     <group name={`balance:${check.object_id}`}>
@@ -129,7 +138,7 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
           raycast={ignoreRaycast}
         >
           <sphereGeometry args={[CONTACT_RADIUS_M, 12, 8]} />
-          <meshBasicMaterial color={CONTACT_COLOUR} depthTest={false} />
+          <meshBasicMaterial color={colours.contact} depthTest={false} />
         </mesh>
       ))}
       {wrenchContacts.map((contact, index) => {
@@ -148,11 +157,11 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
               raycast={ignoreRaycast}
             >
               <sphereGeometry args={[0.004, 10, 8]} />
-              <meshBasicMaterial color={WRENCH_COLOUR} depthTest={false} />
+              <meshBasicMaterial color={colours.wrench} depthTest={false} />
             </mesh>
             <Line
               points={[renderPoint(point), renderPoint(end)]}
-              color={WRENCH_COLOUR}
+              color={colours.wrench}
               lineWidth={2}
               depthTest={false}
               renderOrder={25}
@@ -164,7 +173,7 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
       {hasSupport && (
         <Line
           points={[renderPoint(centre), renderPoint(projection)]}
-          color={COM_COLOUR}
+          color={colours.com}
           lineWidth={2}
           dashed
           dashSize={0.035}
@@ -174,9 +183,13 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
           raycast={ignoreRaycast}
         />
       )}
-      <mesh position={renderPoint(centre)} renderOrder={26} raycast={ignoreRaycast}>
+      <mesh
+        position={renderPoint(centre)}
+        renderOrder={26}
+        raycast={ignoreRaycast}
+      >
         <sphereGeometry args={[COM_RADIUS_M, 16, 12]} />
-        <meshBasicMaterial color={COM_COLOUR} depthTest={false} />
+        <meshBasicMaterial color={colours.com} depthTest={false} />
       </mesh>
       {hasSupport && (
         <mesh
@@ -186,7 +199,11 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
           raycast={ignoreRaycast}
         >
           <ringGeometry args={[0.025, 0.04, 20]} />
-          <meshBasicMaterial color={COM_COLOUR} side={THREE.DoubleSide} depthTest={false} />
+          <meshBasicMaterial
+            color={colours.com}
+            side={THREE.DoubleSide}
+            depthTest={false}
+          />
         </mesh>
       )}
       {nearest && (
@@ -206,11 +223,47 @@ function ObjectBalanceEvidence({ check }: { check: BalanceCheck }) {
   );
 }
 
-export function BalanceOverlay({ checks }: { checks: BalanceCheck[] }) {
+export function BalanceOverlay({
+  checks,
+  theme,
+}: {
+  checks: BalanceCheck[];
+  theme: Theme;
+}) {
+  const colours = useMemo<EvidenceColours>(
+    () => ({
+      contact: themeToken(
+        "--evidence-contact",
+        theme === "dark" ? "#c4a46b" : "#8f7040",
+      ),
+      wrench: themeToken(
+        "--evidence-wrench",
+        theme === "dark" ? "#79a5ae" : "#4c7b85",
+      ),
+      com: themeToken(
+        "--evidence-com",
+        theme === "dark" ? "#a693b1" : "#766583",
+      ),
+      pass: themeToken(
+        "--evidence-pass",
+        theme === "dark" ? "#779884" : "#527863",
+      ),
+      fail: themeToken(
+        "--evidence-fail",
+        theme === "dark" ? "#bb7a7c" : "#955d60",
+      ),
+    }),
+    [theme],
+  );
+
   return (
     <>
       {checks.map((check) => (
-        <ObjectBalanceEvidence key={check.object_id} check={check} />
+        <ObjectBalanceEvidence
+          key={check.object_id}
+          check={check}
+          colours={colours}
+        />
       ))}
     </>
   );

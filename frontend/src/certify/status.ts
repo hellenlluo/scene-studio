@@ -10,9 +10,20 @@
  * disagreeing is precisely the bug that would make the viewer's red channel lie —
  * showing an object as fine when the backend has failed it, or the reverse.
  */
-import type { AxisStatus, Certificate, SceneObject, SceneSpec } from "../api/client";
+import type {
+  AxisStatus,
+  Certificate,
+  SceneObject,
+  SceneSpec,
+} from "../api/client";
 
-export const AXES = ["scale", "balance", "stability", "inertial", "cost"] as const;
+export const AXES = [
+  "scale",
+  "balance",
+  "stability",
+  "inertial",
+  "cost",
+] as const;
 export type AxisName = (typeof AXES)[number];
 
 /** What a single object's geometry should be drawn as. */
@@ -94,12 +105,12 @@ export function statusFor(
  * contact, so the viewer is the only place it shows.
  */
 export function supportOf(
-  object: Pick<SceneObject, 'supported_by'>,
+  object: Pick<SceneObject, "supported_by">,
   names?: Map<string, string>,
 ): string {
-  const parent = object.supported_by
-  if (!parent) return 'the floor'
-  return names?.get(parent) ?? parent
+  const parent = object.supported_by;
+  if (!parent) return "the floor";
+  return names?.get(parent) ?? parent;
 }
 
 export function reasonsFor(
@@ -147,7 +158,9 @@ export function reasonsFor(
     }
     const worst = Math.max(...check.deviation_sigma.map(Math.abs));
     if (worst > sigmaLimit) {
-      reasons.push(`${worst.toFixed(1)}σ from its class prior (tolerance ${sigmaLimit}σ)`);
+      reasons.push(
+        `${worst.toFixed(1)}σ from its class prior (tolerance ${sigmaLimit}σ)`,
+      );
     }
     if (!check.base_inside_parent && !check.contact_constrained)
       reasons.push("base is not over its support");
@@ -219,7 +232,8 @@ export function reasonsFor(
     if (check.settled === false) {
       const linearSpeed = check.terminal_linear_speed_m_s ?? 0;
       const angularSpeed = check.terminal_angular_speed_deg_s ?? 0;
-      const timeout = certificate.settle_timeout_seconds ?? check.simulation_time_s ?? 0;
+      const timeout =
+        certificate.settle_timeout_seconds ?? check.simulation_time_s ?? 0;
       const quietTime = certificate.settle_quiet_seconds ?? 0.5;
       reasons.push(
         `does not come to rest within ${timeout.toFixed(1)} s: filtered COM rate ` +

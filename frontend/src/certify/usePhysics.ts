@@ -9,36 +9,37 @@
  * nothing is written back to `SceneSpec`. When there are pending edits, the server
  * compiles an ephemeral clone containing them; resetting returns to that draft.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, storageUrl } from '../api/client'
-import type { ObjectEdit } from '../api/client'
-import type { Command, Event, PhysicsViolation, Pose } from './physics.worker'
-import PhysicsWorker from './physics.worker?worker'
+import { api, storageUrl } from "../api/client";
+import type { ObjectEdit } from "../api/client";
+import type { Command, Event, PhysicsViolation, Pose } from "./physics.worker";
+import PhysicsWorker from "./physics.worker?worker";
 
 /** Simulated seconds advanced per animation frame. */
-const STEP_SECONDS = 1 / 60
-const EMPTY_EDITS: ReadonlyMap<string, ObjectEdit> = new Map()
+const STEP_SECONDS = 1 / 60;
+const EMPTY_EDITS: ReadonlyMap<string, ObjectEdit> = new Map();
 
-export type PhysicsState = 'idle' | 'loading' | 'running' | 'paused' | 'diverged' | 'error'
+export type PhysicsState =
+  "idle" | "loading" | "running" | "paused" | "diverged" | "error";
 
 export interface Physics {
-  state: PhysicsState
+  state: PhysicsState;
   /** Live poses by object id while running or paused; empty when idle. */
-  poses: Map<string, Pose>
+  poses: Map<string, Pose>;
   /** Simulated seconds since the scene was compiled. */
-  time: number
-  error: string | null
+  time: number;
+  error: string | null;
   /** Pending edits captured when this MuJoCo model was compiled. */
-  draftEdits: ObjectEdit[]
-  usingDraft: boolean
+  draftEdits: ObjectEdit[];
+  usingDraft: boolean;
   /** Maximum observed motion for objects that crossed the certificate limits. */
-  violations: PhysicsViolation[]
-  enable: () => void
-  disable: () => void
-  pause: () => void
-  resume: () => void
-  reset: () => void
+  violations: PhysicsViolation[];
+  enable: () => void;
+  disable: () => void;
+  pause: () => void;
+  resume: () => void;
+  reset: () => void;
 }
 
 export function usePhysics(
@@ -48,24 +49,24 @@ export function usePhysics(
   maxTiltDeg = 2,
   pendingEdits: ReadonlyMap<string, ObjectEdit> = EMPTY_EDITS,
 ): Physics {
-  const [state, setState] = useState<PhysicsState>('idle')
-  const [poses, setPoses] = useState<Map<string, Pose>>(new Map())
-  const [time, setTime] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [violations, setViolations] = useState<PhysicsViolation[]>([])
-  const [draftEdits, setDraftEdits] = useState<ObjectEdit[]>([])
+  const [state, setState] = useState<PhysicsState>("idle");
+  const [poses, setPoses] = useState<Map<string, Pose>>(new Map());
+  const [time, setTime] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [violations, setViolations] = useState<PhysicsViolation[]>([]);
+  const [draftEdits, setDraftEdits] = useState<ObjectEdit[]>([]);
 
-  const worker = useRef<Worker | null>(null)
-  const frame = useRef<number | null>(null)
-  const stepping = useRef(false)
+  const worker = useRef<Worker | null>(null);
+  const frame = useRef<number | null>(null);
+  const stepping = useRef(false);
 
   const teardown = useCallback(() => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current)
-    frame.current = null
-    stepping.current = false
-    worker.current?.terminate()
-    worker.current = null
-  }, [])
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    stepping.current = false;
+    worker.current?.terminate();
+    worker.current = null;
+  }, []);
 
   // A scene change invalidates everything: different MJCF, different bodies, and a
   // stale model would report poses for object ids the new scene does not contain.
@@ -74,87 +75,90 @@ export function usePhysics(
   // this state away when a prop changes" — an effect that calls setState would
   // render once with the old scene's poses applied to the new scene's objects
   // before correcting itself, and the lint rule against it is right.
-  const key = `${sceneId ?? ''}@${updatedAt ?? ''}`
-  const [previousKey, setPreviousKey] = useState(key)
+  const key = `${sceneId ?? ""}@${updatedAt ?? ""}`;
+  const [previousKey, setPreviousKey] = useState(key);
   if (key !== previousKey) {
-    setPreviousKey(key)
-    setState('idle')
-    setPoses(new Map())
-    setTime(0)
-    setError(null)
-    setViolations([])
-    setDraftEdits([])
+    setPreviousKey(key);
+    setState("idle");
+    setPoses(new Map());
+    setTime(0);
+    setError(null);
+    setViolations([]);
+    setDraftEdits([]);
   }
 
   // The worker is an external system, so tearing it down belongs in an effect. It
   // runs on a scene change and on unmount, and both want the same thing.
-  useEffect(() => teardown, [key, teardown])
+  useEffect(() => teardown, [key, teardown]);
 
   const enable = useCallback(() => {
-    if (!sceneId || worker.current) return
-    const editsSnapshot = [...pendingEdits.values()]
-    setState('loading')
-    setError(null)
-    setDraftEdits(editsSnapshot)
+    if (!sceneId || worker.current) return;
+    const editsSnapshot = [...pendingEdits.values()];
+    setState("loading");
+    setError(null);
+    setDraftEdits(editsSnapshot);
 
-    const instance = new PhysicsWorker()
-    worker.current = instance
+    const instance = new PhysicsWorker();
+    worker.current = instance;
 
     const step = () => {
-      if (!stepping.current) return
-      instance.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
-    }
+      if (!stepping.current) return;
+      instance.postMessage({
+        type: "step",
+        seconds: STEP_SECONDS,
+      } satisfies Command);
+    };
 
     instance.onmessage = (event: MessageEvent<Event>) => {
-      const message = event.data
-      if (message.type === 'ready') {
-        setState('running')
-        stepping.current = true
-        step()
-      } else if (message.type === 'poses') {
-        setTime(message.time)
-        setPoses(new Map(message.poses.map((pose) => [pose.objectId, pose])))
-        setViolations(message.violations)
+      const message = event.data;
+      if (message.type === "ready") {
+        setState("running");
+        stepping.current = true;
+        step();
+      } else if (message.type === "poses") {
+        setTime(message.time);
+        setPoses(new Map(message.poses.map((pose) => [pose.objectId, pose])));
+        setViolations(message.violations);
         // Backpressure: the next step is scheduled by the reply to the last one, so
         // exactly one is ever in flight. Posting on every animation frame regardless
         // put no bound on the worker's queue — the moment stepping costs more than a
         // frame the backlog grows without limit and the tab stops responding, with
         // nothing on screen to say why.
-        if (stepping.current) frame.current = requestAnimationFrame(step)
-      } else if (message.type === 'unstable') {
+        if (stepping.current) frame.current = requestAnimationFrame(step);
+      } else if (message.type === "unstable") {
         // Not an error state: the run was real up to this point, and the poses on
         // screen are the last ones before it came apart. Stopping here is what makes
         // the failure legible instead of an endless restart loop.
-        setTime(message.time)
-        setError(message.message)
-        setState('diverged')
-        stepping.current = false
-      } else if (message.type === 'error') {
-        setError(message.message)
-        setState('error')
-        stepping.current = false
+        setTime(message.time);
+        setError(message.message);
+        setState("diverged");
+        stepping.current = false;
+      } else if (message.type === "error") {
+        setError(message.message);
+        setState("error");
+        stepping.current = false;
       }
-    }
+    };
 
     void (async () => {
       try {
         const bundle = editsSnapshot.length
           ? await api.previewScenePhysics(sceneId, { objects: editsSnapshot })
-          : await api.scenePhysics(sceneId)
+          : await api.scenePhysics(sceneId);
         // Fetched here rather than in the worker so one failed asset surfaces as a
         // message the panel can show, instead of MuJoCo failing to compile with a
         // reason that has to be dug out of the console.
         const entries = await Promise.all(
           Object.entries(bundle.meshes).map(async ([name, path]) => {
-            const response = await fetch(storageUrl(path, updatedAt))
-            if (!response.ok) throw new Error(`${name}: ${response.status}`)
-            return [name, await response.arrayBuffer()] as const
+            const response = await fetch(storageUrl(path, updatedAt));
+            if (!response.ok) throw new Error(`${name}: ${response.status}`);
+            return [name, await response.arrayBuffer()] as const;
           }),
-        )
-        const meshes = Object.fromEntries(entries)
+        );
+        const meshes = Object.fromEntries(entries);
         instance.postMessage(
           {
-            type: 'start',
+            type: "start",
             mjcf: bundle.mjcf,
             meshes,
             reportInterval: STEP_SECONDS,
@@ -163,57 +167,63 @@ export function usePhysics(
           },
           // Transferred, not copied: 109 buffers is worth not duplicating.
           Object.values(meshes),
-        )
+        );
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
-        setState('error')
+        setError(cause instanceof Error ? cause.message : String(cause));
+        setState("error");
       }
-    })()
-  }, [sceneId, updatedAt, maxDisplacementM, maxTiltDeg, pendingEdits])
+    })();
+  }, [sceneId, updatedAt, maxDisplacementM, maxTiltDeg, pendingEdits]);
 
   const disable = useCallback(() => {
-    teardown()
-    setState('idle')
-    setPoses(new Map())
-    setTime(0)
-    setError(null)
-    setViolations([])
-    setDraftEdits([])
-  }, [teardown])
+    teardown();
+    setState("idle");
+    setPoses(new Map());
+    setTime(0);
+    setError(null);
+    setViolations([]);
+    setDraftEdits([]);
+  }, [teardown]);
 
   const pause = useCallback(() => {
-    if (!worker.current || state !== 'running') return
-    if (frame.current !== null) cancelAnimationFrame(frame.current)
-    frame.current = null
-    stepping.current = false
-    worker.current.postMessage({ type: 'pause' } satisfies Command)
+    if (!worker.current || state !== "running") return;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    stepping.current = false;
+    worker.current.postMessage({ type: "pause" } satisfies Command);
     // Keep the worker, time and last reported poses: this is the state the user may
     // choose to commit, not a stop that throws the simulation away.
-    setState('paused')
-  }, [state])
+    setState("paused");
+  }, [state]);
 
   const resume = useCallback(() => {
-    if (!worker.current || state !== 'paused') return
-    setState('running')
-    stepping.current = true
-    worker.current.postMessage({ type: 'resume' } satisfies Command)
-    worker.current.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
-  }, [state])
+    if (!worker.current || state !== "paused") return;
+    setState("running");
+    stepping.current = true;
+    worker.current.postMessage({ type: "resume" } satisfies Command);
+    worker.current.postMessage({
+      type: "step",
+      seconds: STEP_SECONDS,
+    } satisfies Command);
+  }, [state]);
 
   const reset = useCallback(() => {
     // Back to the compiled pose — either the stored graph or the captured draft.
     // Also the way out of `diverged`: the worker restarts its own clock, so
     // stepping can resume from a state that is known good.
-    worker.current?.postMessage({ type: 'reset' } satisfies Command)
-    setTime(0)
-    setError(null)
-    setViolations([])
+    worker.current?.postMessage({ type: "reset" } satisfies Command);
+    setTime(0);
+    setError(null);
+    setViolations([]);
     if (worker.current) {
-      setState('running')
-      stepping.current = true
-      worker.current.postMessage({ type: 'step', seconds: STEP_SECONDS } satisfies Command)
+      setState("running");
+      stepping.current = true;
+      worker.current.postMessage({
+        type: "step",
+        seconds: STEP_SECONDS,
+      } satisfies Command);
     }
-  }, [])
+  }, []);
 
   return useMemo(
     () => ({
@@ -243,5 +253,5 @@ export function usePhysics(
       resume,
       reset,
     ],
-  )
+  );
 }

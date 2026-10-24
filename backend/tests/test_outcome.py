@@ -1,7 +1,7 @@
 """A completed computation is not necessarily a ready physical scene."""
 
 from app.pipeline import solve
-from app.schemas import SceneOutcome
+from app.schemas import AxisStatus, SceneOutcome
 from tests.fixtures.seeded import build_spec
 
 
@@ -40,3 +40,18 @@ def test_final_diagnostics_describe_the_certified_graph():
 
     assert final.max_settle_drift_m == measured
     assert not final.settled
+
+
+def test_passing_stability_is_not_overruled_by_the_solver_round_tolerance():
+    """The solver's 2 mm fixed-point threshold is not a hidden sixth axis."""
+    spec = build_spec("outcome-public-stability-limit", "kitchen")
+    certificate = spec.certificate.model_copy(deep=True)
+    certificate.stability_status = AxisStatus.PASS
+    certificate.stability[0].com_displacement_m = 0.005
+    certificate.stability[0].passed = True
+    stale = spec.diagnostics.model_copy(update={"settled": False})
+
+    final = solve.finalise_diagnostics(stale, certificate)
+
+    assert final.max_settle_drift_m == 0.005
+    assert final.settled

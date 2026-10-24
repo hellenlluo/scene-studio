@@ -5,15 +5,8 @@ import * as THREE from "three";
 import type { Certificate, SceneSpec } from "../api/client";
 import type { Pose } from "../certify/physics.worker";
 import { failingObjectIds, nodeToObjectId } from "../certify/status";
+import { type Theme, themeToken } from "../theme";
 import { useSceneStore } from "./store";
-
-const COLOURS = {
-  // Red is a *certified failure* — measured and objective. Amber (v2 uncertainty) and
-  // grey (uncommitted edits) are deliberately different channels: an object can be
-  // confidently wrong or uncertainly fine.
-  failed: new THREE.Color("#d94b4b"),
-  selected: new THREE.Color("#4a9eff"),
-};
 
 /**
  * How the status tint is applied, and why it is mostly emissive.
@@ -54,6 +47,7 @@ interface Props {
    * object until something overwrites it.
    */
   poses?: Map<string, Pose>;
+  theme: Theme;
 }
 
 export function SceneModel({
@@ -63,6 +57,7 @@ export function SceneModel({
   onObjects,
   visible = true,
   poses,
+  theme,
 }: Props) {
   const { scene } = useGLTF(url);
   const selectedObjectId = useSceneStore((s) => s.selectedObjectId);
@@ -73,6 +68,19 @@ export function SceneModel({
   // GLTFLoader strips `/` from node names, so the object id cannot be recovered
   // by splitting. Build the mapping forward from the graph instead.
   const nodeOwner = useMemo(() => nodeToObjectId(graph), [graph]);
+  const colours = useMemo(
+    () => ({
+      // A certified failure and a selection remain distinct channels, but both are
+      // softened to sit comfortably in their surrounding theme.
+      failed: new THREE.Color(
+        themeToken("--failure-3d", theme === "dark" ? "#c98284" : "#a45f62"),
+      ),
+      selected: new THREE.Color(
+        themeToken("--selection-3d", theme === "dark" ? "#8aabb4" : "#466f7c"),
+      ),
+    }),
+    [theme],
+  );
 
   // useGLTF caches by URL, so the loaded scene is shared across every component that
   // asks for it. Cloning gives this instance its own nodes and materials to touch.
@@ -143,7 +151,8 @@ export function SceneModel({
       const pose = poses?.get(object.object_id);
       const edit = edits.get(object.object_id);
       const position = pose?.position ?? edit?.position_m ?? object.position_m;
-      const quaternion = pose?.quaternion ?? edit?.orientation ?? object.orientation;
+      const quaternion =
+        pose?.quaternion ?? edit?.orientation ?? object.orientation;
       const scale = edit?.scale ?? object.scale;
       group.position.set(...(position as [number, number, number]));
       group.quaternion.set(
@@ -178,9 +187,9 @@ export function SceneModel({
 
       const tint =
         objectId === selectedObjectId
-          ? COLOURS.selected
+          ? colours.selected
           : failing.has(objectId)
-            ? COLOURS.failed
+            ? colours.failed
             : null;
 
       // Materials hold GPU resources that garbage collection does not reclaim, and
@@ -207,7 +216,7 @@ export function SceneModel({
       node.castShadow = true;
       node.receiveShadow = true;
     });
-  }, [model, failing, selectedObjectId, nodeOwner]);
+  }, [model, failing, selectedObjectId, nodeOwner, colours]);
 
   return (
     <primitive

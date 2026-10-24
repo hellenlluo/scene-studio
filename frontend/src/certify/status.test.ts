@@ -3,9 +3,14 @@
  * the two copies drifting apart. The assertions deliberately match the ones in
  * `backend/tests/test_schemas.py`.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from "vitest";
 
-import type { BalanceCheck, Certificate, ScaleCheck, StabilityCheck } from '../api/client'
+import type {
+  BalanceCheck,
+  Certificate,
+  ScaleCheck,
+  StabilityCheck,
+} from "../api/client";
 import {
   failingObjectIds,
   isCertified,
@@ -15,15 +20,15 @@ import {
   statusFor,
   supportOf,
   uncheckedAxes,
-} from './status'
+} from "./status";
 
 function certificate(overrides: Partial<Certificate> = {}): Certificate {
   return {
-    scale_status: 'pass',
-    balance_status: 'pass',
-    stability_status: 'pass',
-    inertial_status: 'pass',
-    cost_status: 'pass',
+    scale_status: "pass",
+    balance_status: "pass",
+    stability_status: "pass",
+    inertial_status: "pass",
+    cost_status: "pass",
     scale: [],
     balance: [],
     stability: [],
@@ -33,7 +38,7 @@ function certificate(overrides: Partial<Certificate> = {}): Certificate {
     support_gap_tolerance_m: 0.005,
     prior_deviation_tolerance_sigma: 3,
     ...overrides,
-  } as Certificate
+  } as Certificate;
 }
 
 function balanceCheck(
@@ -44,21 +49,24 @@ function balanceCheck(
     object_id: objectId,
     centre_of_mass_xy_m: [0, 0],
     contact_count: 4,
-    evidence_source: 'collision_proxy',
+    evidence_source: "collision_proxy",
     contact_force_feasible: true,
-    equilibrium_model: 'horizontal_support_2d',
+    equilibrium_model: "horizontal_support_2d",
     non_horizontal_contact_count: 0,
     support_margin_m: 0.05,
     full_base_margin_m: 0.05,
     full_base_force_feasible: true,
     support_coverage_ratio: 1,
-    failure_kind: 'none',
+    failure_kind: "none",
     passed: true,
     ...overrides,
-  }
+  };
 }
 
-function scaleCheck(objectId: string, overrides: Partial<ScaleCheck> = {}): ScaleCheck {
+function scaleCheck(
+  objectId: string,
+  overrides: Partial<ScaleCheck> = {},
+): ScaleCheck {
   return {
     object_id: objectId,
     // A fixed 3-tuple, not number[] — the generated types carry Vec3 exactly as
@@ -70,7 +78,7 @@ function scaleCheck(objectId: string, overrides: Partial<ScaleCheck> = {}): Scal
     contact_constrained: false,
     passed: true,
     ...overrides,
-  }
+  };
 }
 
 function stabilityCheck(
@@ -89,145 +97,151 @@ function stabilityCheck(
     settled: true,
     passed: true,
     ...overrides,
-  }
+  };
 }
 
-describe('isCertified', () => {
-  it('passes when every axis was reached and none failed', () => {
-    expect(isCertified(certificate())).toBe(true)
-  })
+describe("isCertified", () => {
+  it("passes when every axis was reached and none failed", () => {
+    expect(isCertified(certificate())).toBe(true);
+  });
 
-  it('fails on any failing axis', () => {
-    expect(isCertified(certificate({ stability_status: 'fail' }))).toBe(false)
-  })
+  it("fails on any failing axis", () => {
+    expect(isCertified(certificate({ stability_status: "fail" }))).toBe(false);
+  });
 
-  it('fails when an axis was never run, even if everything else passed', () => {
+  it("fails when an axis was never run, even if everything else passed", () => {
     // Without this a scene certifies on the strength of whichever validators
     // happen to be wired up.
-    expect(isCertified(certificate({ scale_status: 'not_run' }))).toBe(false)
-  })
+    expect(isCertified(certificate({ scale_status: "not_run" }))).toBe(false);
+  });
 
-  it('fails when nothing was checked at all', () => {
+  it("fails when nothing was checked at all", () => {
     const untested = certificate({
-      scale_status: 'not_run',
-      balance_status: 'not_run',
-      stability_status: 'not_run',
-      inertial_status: 'not_run',
-      cost_status: 'not_run',
-    })
-    expect(isCertified(untested)).toBe(false)
-  })
+      scale_status: "not_run",
+      balance_status: "not_run",
+      stability_status: "not_run",
+      inertial_status: "not_run",
+      cost_status: "not_run",
+    });
+    expect(isCertified(untested)).toBe(false);
+  });
 
-  it('tolerates a not_applicable axis', () => {
+  it("tolerates a not_applicable axis", () => {
     // Nothing of that kind to check is not the same as not having looked.
-    expect(isCertified(certificate({ inertial_status: 'not_applicable' }))).toBe(true)
-  })
-})
+    expect(
+      isCertified(certificate({ inertial_status: "not_applicable" })),
+    ).toBe(true);
+  });
+});
 
-describe('uncheckedAxes', () => {
-  it('names the gaps', () => {
-    expect(uncheckedAxes(certificate({ scale_status: 'not_run' }))).toEqual(['scale'])
-  })
+describe("uncheckedAxes", () => {
+  it("names the gaps", () => {
+    expect(uncheckedAxes(certificate({ scale_status: "not_run" }))).toEqual([
+      "scale",
+    ]);
+  });
 
-  it('is empty for a fully checked scene', () => {
-    expect(uncheckedAxes(certificate())).toEqual([])
-  })
-})
+  it("is empty for a fully checked scene", () => {
+    expect(uncheckedAxes(certificate())).toEqual([]);
+  });
+});
 
-describe('failingObjectIds', () => {
-  it('gathers across every axis', () => {
+describe("failingObjectIds", () => {
+  it("gathers across every axis", () => {
     const cert = certificate({
-      scale: [scaleCheck('mug', { passed: false }), scaleCheck('table')],
-      balance: [balanceCheck('lamp', { passed: false })],
-      stability: [stabilityCheck('cabinet', { passed: false })],
-    })
-    expect(failingObjectIds(cert)).toEqual(new Set(['mug', 'lamp', 'cabinet']))
-  })
+      scale: [scaleCheck("mug", { passed: false }), scaleCheck("table")],
+      balance: [balanceCheck("lamp", { passed: false })],
+      stability: [stabilityCheck("cabinet", { passed: false })],
+    });
+    expect(failingObjectIds(cert)).toEqual(new Set(["mug", "lamp", "cabinet"]));
+  });
 
-  it('is empty for a sound scene', () => {
-    expect(failingObjectIds(certificate({ scale: [scaleCheck('mug')] })).size).toBe(0)
-  })
+  it("is empty for a sound scene", () => {
+    expect(
+      failingObjectIds(certificate({ scale: [scaleCheck("mug")] })).size,
+    ).toBe(0);
+  });
 
-  it('reports both bodies of a symmetric overlap', () => {
+  it("reports both bodies of a symmetric overlap", () => {
     // Stability measures penetration symmetrically, so a mug buried in a table
     // genuinely fails both. Honest, and the panel groups by cause so it reads as
     // one problem.
     const cert = certificate({
       stability: [
-        stabilityCheck('mug', { initial_penetration_m: 0.05, passed: false }),
-        stabilityCheck('table', { initial_penetration_m: 0.05, passed: false }),
+        stabilityCheck("mug", { initial_penetration_m: 0.05, passed: false }),
+        stabilityCheck("table", { initial_penetration_m: 0.05, passed: false }),
       ],
-    })
-    expect(failingObjectIds(cert)).toEqual(new Set(['mug', 'table']))
-  })
-})
+    });
+    expect(failingObjectIds(cert)).toEqual(new Set(["mug", "table"]));
+  });
+});
 
-describe('statusFor', () => {
-  it('marks only the objects that failed', () => {
-    const cert = certificate({ scale: [scaleCheck('mug', { passed: false })] })
-    expect(statusFor('mug', cert)).toBe('failed')
-    expect(statusFor('table', cert)).toBe('ok')
-  })
-})
+describe("statusFor", () => {
+  it("marks only the objects that failed", () => {
+    const cert = certificate({ scale: [scaleCheck("mug", { passed: false })] });
+    expect(statusFor("mug", cert)).toBe("failed");
+    expect(statusFor("table", cert)).toBe("ok");
+  });
+});
 
-describe('reasonsFor', () => {
-  it('explains static balance failure separately from dynamic settling', () => {
+describe("reasonsFor", () => {
+  it("explains static balance failure separately from dynamic settling", () => {
     const cert = certificate({
       balance: [
-        balanceCheck('lamp', {
+        balanceCheck("lamp", {
           contact_force_feasible: false,
           support_margin_m: -0.018,
           passed: false,
         }),
       ],
-    })
-    expect(reasonsFor('lamp', cert)).toEqual([
-      'centre of mass lies 18 mm outside its support wrench region',
-    ])
-  })
+    });
+    expect(reasonsFor("lamp", cert)).toEqual([
+      "centre of mass lies 18 mm outside its support wrench region",
+    ]);
+  });
 
-  it('reports a degenerate contact patch', () => {
+  it("reports a degenerate contact patch", () => {
     const cert = certificate({
-      balance: [balanceCheck('lamp', { contact_count: 1, passed: false })],
-    })
-    expect(reasonsFor('lamp', cert)[0]).toContain('only 1 support contact')
-  })
+      balance: [balanceCheck("lamp", { contact_count: 1, passed: false })],
+    });
+    expect(reasonsFor("lamp", cert)[0]).toContain("only 1 support contact");
+  });
 
-  it('distinguishes partial support from intrinsic imbalance', () => {
+  it("distinguishes partial support from intrinsic imbalance", () => {
     const partial = certificate({
       balance: [
-        balanceCheck('clock', {
-          failure_kind: 'partial_support',
+        balanceCheck("clock", {
+          failure_kind: "partial_support",
           support_margin_m: -0.017,
           passed: false,
         }),
       ],
-    })
+    });
     const intrinsic = certificate({
       balance: [
-        balanceCheck('clock', {
-          failure_kind: 'intrinsic_imbalance',
+        balanceCheck("clock", {
+          failure_kind: "intrinsic_imbalance",
           full_base_margin_m: -0.012,
           full_base_force_feasible: false,
           passed: false,
         }),
       ],
-    })
+    });
 
-    expect(reasonsFor('clock', partial)).toEqual([
-      'part of its base is unsupported; centre of mass lies 17 mm outside the supported region',
-    ])
-    expect(reasonsFor('clock', intrinsic)).toEqual([
-      'centre of mass lies 12 mm outside its complete base; sliding cannot fix it',
-    ])
-  })
+    expect(reasonsFor("clock", partial)).toEqual([
+      "part of its base is unsupported; centre of mass lies 17 mm outside the supported region",
+    ]);
+    expect(reasonsFor("clock", intrinsic)).toEqual([
+      "centre of mass lies 12 mm outside its complete base; sliding cannot fix it",
+    ]);
+  });
 
-  it('explains a failed general 3D contact wrench', () => {
+  it("explains a failed general 3D contact wrench", () => {
     const cert = certificate({
       balance: [
-        balanceCheck('book', {
-          failure_kind: 'contact_wrench_infeasible',
-          equilibrium_model: 'contact_wrench_3d',
+        balanceCheck("book", {
+          failure_kind: "contact_wrench_infeasible",
+          equilibrium_model: "contact_wrench_3d",
           wrench_contacts: [
             {
               position_m: [0, 0, 0],
@@ -240,31 +254,37 @@ describe('reasonsFor', () => {
           passed: false,
         }),
       ],
-    })
+    });
 
-    expect(reasonsFor('book', cert)).toEqual([
-      'cannot balance gravity with its 1 measured 3D contacts',
-    ])
-  })
+    expect(reasonsFor("book", cert)).toEqual([
+      "cannot balance gravity with its 1 measured 3D contacts",
+    ]);
+  });
 
-  it('does not report a gap that is inside the tolerance', () => {
+  it("does not report a gap that is inside the tolerance", () => {
     // The regression this exists for. An object over-hanging its support fails on
     // containment while its height is fine, and every scale reason used to be
     // emitted on `|gap| > 0`. Measured on room2: seven of nine failures had gaps
     // under 3 mm against a 5 mm bar and were all reported as floating.
     const cert = certificate({
-      scale: [scaleCheck('mug', { support_gap_m: 0.0009, base_inside_parent: false, passed: false })],
-    })
-    const reasons = reasonsFor('mug', cert)
+      scale: [
+        scaleCheck("mug", {
+          support_gap_m: 0.0009,
+          base_inside_parent: false,
+          passed: false,
+        }),
+      ],
+    });
+    const reasons = reasonsFor("mug", cert);
 
-    expect(reasons).toEqual(['base is not over its support'])
-    expect(reasons.some((r) => r.includes('floating'))).toBe(false)
-  })
+    expect(reasons).toEqual(["base is not over its support"]);
+    expect(reasons.some((r) => r.includes("floating"))).toBe(false);
+  });
 
-  it('explains a body that is still moving when the settling timeout expires', () => {
+  it("explains a body that is still moving when the settling timeout expires", () => {
     const cert = certificate({
       stability: [
-        stabilityCheck('mug', {
+        stabilityCheck("mug", {
           terminal_linear_speed_m_s: 0.0113,
           terminal_angular_speed_deg_s: 3.43,
           quiet_duration_s: 0,
@@ -277,194 +297,207 @@ describe('reasonsFor', () => {
       angular_speed_tolerance_deg_s: 1,
       settle_timeout_seconds: 5,
       settle_quiet_seconds: 0.5,
-    })
+    });
 
-    expect(reasonsFor('mug', cert)).toEqual([
-      'does not come to rest within 5.0 s: filtered COM rate 11.3 mm/s and tilt rate 3.4°/s ' +
-        '(needs ≤5.0 mm/s and ≤1.0°/s continuously for 0.5 s)',
-    ])
-  })
+    expect(reasonsFor("mug", cert)).toEqual([
+      "does not come to rest within 5.0 s: filtered COM rate 11.3 mm/s and tilt rate 3.4°/s " +
+        "(needs ≤5.0 mm/s and ≤1.0°/s continuously for 0.5 s)",
+    ]);
+  });
 
-  it('quotes the gap tolerance, not the penetration tolerance', () => {
+  it("quotes the gap tolerance, not the penetration tolerance", () => {
     // These are different numbers — 5 mm and 2 mm — and reaching for the wrong one
     // reported a measurement as failing against a bar it passed.
     const cert = certificate({
-      scale: [scaleCheck('mug', { support_gap_m: 0.05, passed: false })],
-    })
+      scale: [scaleCheck("mug", { support_gap_m: 0.05, passed: false })],
+    });
 
-    expect(reasonsFor('mug', cert)[0]).toContain('tolerance ±5.0 mm')
-  })
+    expect(reasonsFor("mug", cert)[0]).toContain("tolerance ±5.0 mm");
+  });
 
-  it('takes the sigma tolerance from the certificate rather than hardcoding it', () => {
+  it("takes the sigma tolerance from the certificate rather than hardcoding it", () => {
     const loose = certificate({
       prior_deviation_tolerance_sigma: 6,
-      scale: [scaleCheck('mug', { deviation_sigma: [4, 0, 0], passed: false })],
-    })
-    expect(reasonsFor('mug', loose).some((r) => r.includes('σ'))).toBe(false)
+      scale: [scaleCheck("mug", { deviation_sigma: [4, 0, 0], passed: false })],
+    });
+    expect(reasonsFor("mug", loose).some((r) => r.includes("σ"))).toBe(false);
 
     const tight = certificate({
       prior_deviation_tolerance_sigma: 2,
-      scale: [scaleCheck('mug', { deviation_sigma: [4, 0, 0], passed: false })],
-    })
-    expect(reasonsFor('mug', tight)[0]).toBe('4.0σ from its class prior (tolerance 2σ)')
-  })
+      scale: [scaleCheck("mug", { deviation_sigma: [4, 0, 0], passed: false })],
+    });
+    expect(reasonsFor("mug", tight)[0]).toBe(
+      "4.0σ from its class prior (tolerance 2σ)",
+    );
+  });
 
-  it('distinguishes floating from sunk by the sign of the gap', () => {
+  it("distinguishes floating from sunk by the sign of the gap", () => {
     const sunk = certificate({
-      scale: [scaleCheck('mug', { support_gap_m: -0.05, passed: false })],
-    })
-    expect(reasonsFor('mug', sunk)[0]).toContain('sunk into')
-    expect(reasonsFor('mug', sunk)[0]).toContain('50 mm')
+      scale: [scaleCheck("mug", { support_gap_m: -0.05, passed: false })],
+    });
+    expect(reasonsFor("mug", sunk)[0]).toContain("sunk into");
+    expect(reasonsFor("mug", sunk)[0]).toContain("50 mm");
 
     const floating = certificate({
-      scale: [scaleCheck('mug', { support_gap_m: 0.25, passed: false })],
-    })
-    expect(reasonsFor('mug', floating)[0]).toContain('floating above')
-  })
+      scale: [scaleCheck("mug", { support_gap_m: 0.25, passed: false })],
+    });
+    expect(reasonsFor("mug", floating)[0]).toContain("floating above");
+  });
 
-  it('reports measurements in physical units, not verdicts', () => {
+  it("reports measurements in physical units, not verdicts", () => {
     const cert = certificate({
       stability: [
-        stabilityCheck('mug', {
+        stabilityCheck("mug", {
           initial_penetration_m: 0.05,
           com_displacement_m: 0.0498,
           passed: false,
         }),
       ],
-    })
-    const reasons = reasonsFor('mug', cert)
-    expect(reasons.some((r) => r.includes('overlaps another object by 50 mm'))).toBe(true)
-    expect(reasons.some((r) => r.includes('5.0 cm'))).toBe(true)
+    });
+    const reasons = reasonsFor("mug", cert);
+    expect(
+      reasons.some((r) => r.includes("overlaps another object by 50 mm")),
+    ).toBe(true);
+    expect(reasons.some((r) => r.includes("5.0 cm"))).toBe(true);
     // The tolerance rides along, so a number can be judged without looking it up.
-    expect(reasons.some((r) => r.includes('tolerance'))).toBe(true)
-  })
+    expect(reasons.some((r) => r.includes("tolerance"))).toBe(true);
+  });
 
-  it('only reports the criterion that actually failed', () => {
+  it("only reports the criterion that actually failed", () => {
     // A lamp that topples has huge displacement and micrometres of contact noise.
     // Testing penetration against zero reported both, and rounded the second to
     // "overlaps another object by 0 mm" — a reason that sends you looking for a
     // collision that is not there.
     const cert = certificate({
       stability: [
-        stabilityCheck('lamp', {
+        stabilityCheck("lamp", {
           initial_penetration_m: 4.7e-6,
           com_displacement_m: 0.295,
           orientation_drift_deg: 26.2,
           passed: false,
         }),
       ],
-    })
-    const reasons = reasonsFor('lamp', cert)
+    });
+    const reasons = reasonsFor("lamp", cert);
 
-    expect(reasons.some((r) => r.includes('overlaps'))).toBe(false)
-    expect(reasons.some((r) => r.includes('moves 29.5 cm'))).toBe(true)
-    expect(reasons.some((r) => r.includes('tips 26.2'))).toBe(true)
-  })
+    expect(reasons.some((r) => r.includes("overlaps"))).toBe(false);
+    expect(reasons.some((r) => r.includes("moves 29.5 cm"))).toBe(true);
+    expect(reasons.some((r) => r.includes("tips 26.2"))).toBe(true);
+  });
 
-  it('names the floor rather than calling it another object', () => {
+  it("names the floor rather than calling it another object", () => {
     const cert = certificate({
       stability: [
-        stabilityCheck('lamp', {
+        stabilityCheck("lamp", {
           initial_penetration_m: 0.03,
-          penetration_against: 'floor',
+          penetration_against: "floor",
           passed: false,
         }),
       ],
-    })
-    const reasons = reasonsFor('lamp', cert)
-    expect(reasons.some((r) => r.includes('sinks into the floor by 30 mm'))).toBe(true)
-    expect(reasons.some((r) => r.includes('another object'))).toBe(false)
-  })
+    });
+    const reasons = reasonsFor("lamp", cert);
+    expect(
+      reasons.some((r) => r.includes("sinks into the floor by 30 mm")),
+    ).toBe(true);
+    expect(reasons.some((r) => r.includes("another object"))).toBe(false);
+  });
 
-  it('names the neighbour it overlaps, using its display name', () => {
+  it("names the neighbour it overlaps, using its display name", () => {
     const cert = certificate({
       stability: [
-        stabilityCheck('mug', {
+        stabilityCheck("mug", {
           initial_penetration_m: 0.05,
-          penetration_against: 'obj_548_711',
+          penetration_against: "obj_548_711",
           passed: false,
         }),
       ],
-    })
-    const names = new Map([['obj_548_711', 'side table']])
-    expect(reasonsFor('mug', cert, names).some((r) => r.includes('overlaps side table'))).toBe(
-      true,
-    )
-  })
+    });
+    const names = new Map([["obj_548_711", "side table"]]);
+    expect(
+      reasonsFor("mug", cert, names).some((r) =>
+        r.includes("overlaps side table"),
+      ),
+    ).toBe(true);
+  });
 
-  it('does not round a sub-millimetre measurement away', () => {
+  it("does not round a sub-millimetre measurement away", () => {
     const cert = certificate({
       stability: [
-        stabilityCheck('mug', { initial_penetration_m: 0.0047, passed: false }),
+        stabilityCheck("mug", { initial_penetration_m: 0.0047, passed: false }),
       ],
-    })
-    expect(reasonsFor('mug', cert).some((r) => r.includes('4.7 mm'))).toBe(true)
-  })
+    });
+    expect(reasonsFor("mug", cert).some((r) => r.includes("4.7 mm"))).toBe(
+      true,
+    );
+  });
 
-  it('says nothing about an object that passed', () => {
-    expect(reasonsFor('mug', certificate({ scale: [scaleCheck('mug')] }))).toEqual([])
-  })
-})
+  it("says nothing about an object that passed", () => {
+    expect(
+      reasonsFor("mug", certificate({ scale: [scaleCheck("mug")] })),
+    ).toEqual([]);
+  });
+});
 
-describe('sanitizeNodeName', () => {
-  it('strips the separator, exactly as GLTFLoader does', () => {
+describe("sanitizeNodeName", () => {
+  it("strips the separator, exactly as GLTFLoader does", () => {
     // Observed in the running app: the backend writes `table/top` into the GLB
     // and three.js hands back `tabletop`. Splitting on `/` therefore cannot
     // recover the object id — by the time we see the name it is gone.
-    expect(sanitizeNodeName('table/top')).toBe('tabletop')
-    expect(sanitizeNodeName('mug/body')).toBe('mugbody')
-  })
+    expect(sanitizeNodeName("table/top")).toBe("tabletop");
+    expect(sanitizeNodeName("mug/body")).toBe("mugbody");
+  });
 
-  it('leaves underscores alone and replaces whitespace', () => {
-    expect(sanitizeNodeName('drawer_top/panel')).toBe('drawer_toppanel')
-    expect(sanitizeNodeName('side table/top')).toBe('side_tabletop')
-  })
-})
+  it("leaves underscores alone and replaces whitespace", () => {
+    expect(sanitizeNodeName("drawer_top/panel")).toBe("drawer_toppanel");
+    expect(sanitizeNodeName("side table/top")).toBe("side_tabletop");
+  });
+});
 
-describe('nodeToObjectId', () => {
+describe("nodeToObjectId", () => {
   const graph = {
     objects: [
-      { object_id: 'table', parts: [{ part_id: 'top' }] },
-      { object_id: 'mug', parts: [{ part_id: 'body' }] },
-      { object_id: 'lamp', parts: [{ part_id: 'base' }, { part_id: 'shade' }] },
+      { object_id: "table", parts: [{ part_id: "top" }] },
+      { object_id: "mug", parts: [{ part_id: "body" }] },
+      { object_id: "lamp", parts: [{ part_id: "base" }, { part_id: "shade" }] },
     ],
-  } as unknown as Parameters<typeof nodeToObjectId>[0]
+  } as unknown as Parameters<typeof nodeToObjectId>[0];
 
-  it('maps sanitised node names back to their object', () => {
-    const map = nodeToObjectId(graph)
-    expect(map.get('tabletop')).toBe('table')
-    expect(map.get('mugbody')).toBe('mug')
-  })
+  it("maps sanitised node names back to their object", () => {
+    const map = nodeToObjectId(graph);
+    expect(map.get("tabletop")).toBe("table");
+    expect(map.get("mugbody")).toBe("mug");
+  });
 
-  it('maps every part of a multi-part object to the same owner', () => {
-    const map = nodeToObjectId(graph)
-    expect(map.get('lampbase')).toBe('lamp')
-    expect(map.get('lampshade')).toBe('lamp')
-  })
+  it("maps every part of a multi-part object to the same owner", () => {
+    const map = nodeToObjectId(graph);
+    expect(map.get("lampbase")).toBe("lamp");
+    expect(map.get("lampshade")).toBe("lamp");
+  });
 
-  it('misses rather than guesses for an unknown node', () => {
+  it("misses rather than guesses for an unknown node", () => {
     // A miss shows up as an untinted object, which is visible. Prefix-matching
     // would instead colour the wrong one, which is not.
-    expect(nodeToObjectId(graph).get('somethingelse')).toBeUndefined()
-  })
-})
+    expect(nodeToObjectId(graph).get("somethingelse")).toBeUndefined();
+  });
+});
 
-
-describe('supportOf', () => {
-  it('names the floor rather than reporting nothing', () => {
+describe("supportOf", () => {
+  it("names the floor rather than reporting nothing", () => {
     // `supported_by: null` is the most common answer in any scene, not missing data.
-    expect(supportOf({ supported_by: null })).toBe('the floor')
-  })
+    expect(supportOf({ supported_by: null })).toBe("the floor");
+  });
 
-  it('uses the display name of the parent', () => {
-    const names = new Map([['obj_1', 'side table']])
-    expect(supportOf({ supported_by: 'obj_1' }, names)).toBe('side table')
-  })
+  it("uses the display name of the parent", () => {
+    const names = new Map([["obj_1", "side table"]]);
+    expect(supportOf({ supported_by: "obj_1" }, names)).toBe("side table");
+  });
 
-  it('falls back to the raw id when the parent is not in the graph', () => {
+  it("falls back to the raw id when the parent is not in the graph", () => {
     // A dangling parent is a reconcile bug, and `certify.scale` reports the object
     // as a floor contact instead — so printing the id here is the only place it
     // becomes findable.
-    expect(supportOf({ supported_by: 'obj_ghost' }, new Map())).toBe('obj_ghost')
-  })
-})
+    expect(supportOf({ supported_by: "obj_ghost" }, new Map())).toBe(
+      "obj_ghost",
+    );
+  });
+});

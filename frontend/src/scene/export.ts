@@ -57,11 +57,17 @@ function save(filename: string, blob: Blob): void {
  * browser to queue anyway — and the progress count would go from 0 to done in
  * one jump, which for a multi-second export is the same as having no count.
  */
-async function pooled(limit: number, tasks: (() => Promise<void>)[]): Promise<void> {
+async function pooled(
+  limit: number,
+  tasks: (() => Promise<void>)[],
+): Promise<void> {
   let next = 0;
-  const runners = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
-    while (next < tasks.length) await tasks[next++]();
-  });
+  const runners = Array.from(
+    { length: Math.min(limit, tasks.length) },
+    async () => {
+      while (next < tasks.length) await tasks[next++]();
+    },
+  );
   await Promise.all(runners);
 }
 
@@ -132,11 +138,13 @@ export async function downloadMjcf(
   // result as `Uint8Array<ArrayBufferLike>` and `BlobPart` wants an `ArrayBuffer`
   // backing, a difference that only exists so `SharedArrayBuffer` cannot reach a
   // Blob. `zip` allocates its own plain buffer, so this is that buffer.
-  const archive = await new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) => {
-    zip(files, { level: 6 }, (error, data) =>
-      error ? reject(error) : resolve(data as Uint8Array<ArrayBuffer>),
-    );
-  });
+  const archive = await new Promise<Uint8Array<ArrayBuffer>>(
+    (resolve, reject) => {
+      zip(files, { level: 6 }, (error, data) =>
+        error ? reject(error) : resolve(data as Uint8Array<ArrayBuffer>),
+      );
+    },
+  );
 
   save(`${sceneId}-mjcf.zip`, new Blob([archive], { type: "application/zip" }));
 }

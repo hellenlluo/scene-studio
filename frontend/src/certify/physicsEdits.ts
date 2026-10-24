@@ -14,10 +14,7 @@ function orientationDifferenceDeg(
   const secondNorm = Math.hypot(...second);
   if (firstNorm === 0 || secondNorm === 0) return Number.POSITIVE_INFINITY;
   const dot = Math.abs(
-    first.reduce(
-      (sum, value, index) => sum + value * second[index],
-      0,
-    ) /
+    first.reduce((sum, value, index) => sum + value * second[index], 0) /
       (firstNorm * secondNorm),
   );
   return (2 * Math.acos(Math.min(1, dot)) * 180) / Math.PI;
@@ -33,11 +30,12 @@ export function physicsPoseEdits(
     const pose = poses.get(object.object_id);
     if (!pose) continue;
 
-    const positionChanged = Math.hypot(
-      pose.position[0] - object.position_m[0],
-      pose.position[1] - object.position_m[1],
-      pose.position[2] - object.position_m[2],
-    ) > POSITION_EPSILON_M;
+    const positionChanged =
+      Math.hypot(
+        pose.position[0] - object.position_m[0],
+        pose.position[1] - object.position_m[1],
+        pose.position[2] - object.position_m[2],
+      ) > POSITION_EPSILON_M;
     const orientationChanged =
       orientationDifferenceDeg(pose.quaternion, object.orientation) >
       ORIENTATION_EPSILON_DEG;

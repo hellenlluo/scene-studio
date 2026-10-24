@@ -105,9 +105,20 @@ def finalise_diagnostics(
     if certificate.stability_status is AxisStatus.NOT_RUN:
         return diagnostics
     max_drift = max((check.com_displacement_m for check in certificate.stability), default=0.0)
+    # ROUND_TOLERANCE_M is an internal fixed-point criterion for deciding whether
+    # the block-coordinate solver needs another round. It is deliberately tighter
+    # than the public stability contract, and must not be reused as a second,
+    # hidden certificate threshold here. A pose can move 5 mm, become quiet, and
+    # correctly pass the published 10 mm stability limit; reporting that same pose
+    # as ``scene_not_settled`` makes five passing axes produce NEEDS_ATTENTION.
+    # Once certification has run, its stability status is the authoritative answer.
+    settled = certificate.stability_status in {
+        AxisStatus.PASS,
+        AxisStatus.NOT_APPLICABLE,
+    }
     return diagnostics.model_copy(
         update={
-            "settled": max_drift < ROUND_TOLERANCE_M,
+            "settled": settled,
             "max_settle_drift_m": max_drift,
         }
     )

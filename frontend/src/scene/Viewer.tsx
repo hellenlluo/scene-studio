@@ -14,6 +14,7 @@ import {
 
 import type { SceneEnvelope } from "../api/client";
 import { storageUrl } from "../api/client";
+import { type Theme, themeToken } from "../theme";
 import * as THREE from "three";
 
 import { VIEW_DIRECTION, VIEW_DISTANCE, defaultAim, frame } from "./aim";
@@ -187,9 +188,16 @@ interface Props {
   poses?: Map<string, Pose>;
   /** Prevent edits while the worker is compiling or stepping its edit snapshot. */
   physicsActive?: boolean;
+  /** Keeps CSS chrome and WebGL-only colours on the same palette. */
+  theme: Theme;
 }
 
-export function Viewer({ envelope, poses, physicsActive = false }: Props) {
+export function Viewer({
+  envelope,
+  poses,
+  physicsActive = false,
+  theme,
+}: Props) {
   const select = useSceneStore((s) => s.select);
   const mode = useSceneStore((s) => s.mode);
   const showBalanceDebug = useSceneStore((s) => s.showBalanceDebug);
@@ -235,6 +243,31 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
     [groups],
   );
 
+  // WebGL materials cannot reference CSS custom properties directly. Reading the
+  // same design tokens here keeps the canvas part of the theme rather than a dark
+  // island inside a light interface.
+  const viewportColours = useMemo(
+    () => ({
+      background: themeToken(
+        "--viewport",
+        theme === "dark" ? "#1a1e21" : "#b9c0c3",
+      ),
+      ground: themeToken(
+        "--viewport-ground",
+        theme === "dark" ? "#343a3e" : "#b3bbbe",
+      ),
+      gridCell: themeToken(
+        "--grid-cell",
+        theme === "dark" ? "#50595e" : "#778489",
+      ),
+      gridSection: themeToken(
+        "--grid-section",
+        theme === "dark" ? "#667176" : "#66757a",
+      ),
+    }),
+    [theme],
+  );
+
   // Read the pose back off the group the gizmo just moved. The group *is* the
   // object frame — position and orientation in scene coordinates — so this is a
   // straight read rather than an inverse of whatever the gizmo did.
@@ -260,8 +293,7 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
         // number by design — anisotropic scale breaks inertia — and a one-axis drag
         // would otherwise be read as a uniform one.
         scale:
-          base.scale *
-          ((group.scale.x + group.scale.y + group.scale.z) / 3),
+          base.scale * ((group.scale.x + group.scale.y + group.scale.z) / 3),
       });
     },
     [envelope.spec.graph.objects, recordEdit],
@@ -292,13 +324,12 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
   const hasBalanceEvidence = balanceChecks.some(
     (check) => check.centre_of_mass_m != null,
   );
-
   return (
     <div className="viewer-shell">
       <Canvas shadows camera={CAMERA} onPointerMissed={() => select(null)}>
-        <color attach="background" args={["#0d1117"]} />
+        <color attach="background" args={[viewportColours.background]} />
 
-      {/* Reconstructed base colour maps are dark to begin with — they carry the
+        {/* Reconstructed base colour maps are dark to begin with — they carry the
           photo's own shading baked in, so the renderer's lighting multiplies shadow by
           shadow. Hence the strong ambient term: it lifts the albedo into view rather
           than modelling a room, which the texture already does.
@@ -306,31 +337,31 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
           The key light is still directional and still casts, because contact shadows
           are what make a resting object look like it is resting rather than floating.
           The fill opposes it so the unlit side does not go to black. */}
-      <ambientLight intensity={1.5} />
-      <hemisphereLight intensity={1.0} groundColor="#2a2e36" />
-      <directionalLight position={[4, 6, 3]} intensity={2.2} castShadow />
-      <directionalLight position={[-4, 2, -3]} intensity={0.7} />
+        <ambientLight intensity={1.5} />
+        <hemisphereLight intensity={1.0} groundColor={viewportColours.ground} />
+        <directionalLight position={[4, 6, 3]} intensity={2.2} castShadow />
+        <directionalLight position={[-4, 2, -3]} intensity={0.7} />
 
-      {/* The GLB carries no floor: MJCF's is an infinite plane and a finite box would
+        {/* The GLB carries no floor: MJCF's is an infinite plane and a finite box would
           misrepresent its extent, so the grid is drawn here instead. It sits at
           floor_height_m, in the Y-up frame the glTF root establishes. */}
-      {/* Hidden along with the model. The grid recedes to the horizon, so a camera
+        {/* Hidden along with the model. The grid recedes to the horizon, so a camera
           re-aim is more visible on it than on the geometry — leaving it up during the
           aim would show the very movement the gate exists to hide. */}
-      <Grid
-        visible={ready}
-        args={[12, 12]}
-        position={[0, envelope.spec.graph.floor_height_m ?? 0, 0]}
-        cellSize={0.25}
-        cellColor="#2c313a"
-        sectionSize={1}
-        sectionColor="#3a414d"
-        fadeDistance={18}
-        infiniteGrid
-      />
+        <Grid
+          visible={ready}
+          args={[12, 12]}
+          position={[0, envelope.spec.graph.floor_height_m ?? 0, 0]}
+          cellSize={0.25}
+          cellColor={viewportColours.gridCell}
+          sectionSize={1}
+          sectionColor={viewportColours.gridSection}
+          fadeDistance={18}
+          infiniteGrid
+        />
 
-      <GeometryBoundary key={`geometry-${sceneId}`}>
-        {/* Keyed, so a scene switch tears the old subtree down and falls back to
+        <GeometryBoundary key={`geometry-${sceneId}`}>
+          {/* Keyed, so a scene switch tears the old subtree down and falls back to
             nothing. An unkeyed boundary keeps the previous children mounted while the
             next scene's glTF resolves, which put one frame of the *old* geometry on
             screen under the *new* scene's certificate.
@@ -342,44 +373,47 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
             groups the gizmo has been dragging all survive the change. Committing a
             drag then left the object rendered where it had been dropped while the
             server had already moved it back. */}
-        <Suspense key={geometryKey} fallback={null}>
-          <SceneModel
-            key={geometryKey}
-            url={url}
-            certificate={envelope.spec.certificate}
-            graph={envelope.spec.graph}
-            onObjects={onObjects}
-            visible={ready}
-            poses={poses}
-          />
-        </Suspense>
-      </GeometryBoundary>
+          <Suspense key={geometryKey} fallback={null}>
+            <SceneModel
+              key={geometryKey}
+              url={url}
+              certificate={envelope.spec.certificate}
+              graph={envelope.spec.graph}
+              onObjects={onObjects}
+              visible={ready}
+              poses={poses}
+              theme={theme}
+            />
+          </Suspense>
+        </GeometryBoundary>
 
-      <OrbitControls makeDefault />
-      {/* Deliberately not keyed on the scene. Keying it remounts the component and
+        <OrbitControls makeDefault />
+        {/* Deliberately not keyed on the scene. Keying it remounts the component and
           resets the ref recording that the user has taken over the camera, so every
           scene switch re-aimed a camera it had no business touching. The effect already
           re-runs per scene: `boxes` and `onAimed` both change with the scene id. */}
-      <SceneAim loaded={groups !== null} onAimed={onAimed} />
-      <FrameShortcut boxes={boxes} selected={selected} />
+        <SceneAim loaded={groups !== null} onAimed={onAimed} />
+        <FrameShortcut boxes={boxes} selected={selected} />
 
-      {showBalanceDebug && ready && <BalanceOverlay checks={balanceChecks} />}
+        {showBalanceDebug && ready && (
+          <BalanceOverlay checks={balanceChecks} theme={theme} />
+        )}
 
-      {/* Attaches to the selected object's group, so a drag moves every part of it.
+        {/* Attaches to the selected object's group, so a drag moves every part of it.
           `makeDefault` on OrbitControls is what lets drei suspend orbiting while a
           handle is held — without it the camera and the object move together and
           neither goes where it was asked. */}
-      {selected && !physicsActive && (
-        <TransformControls
-          object={selected}
-          mode={mode}
-          size={0.8}
-          // On mouse-up, not on every frame of the drag: an edit is a statement,
-          // and recording one per pointer move would make "how many edits to
-          // certification" meaningless as a number.
-          onMouseUp={() => recordDrag(selected)}
-        />
-      )}
+        {selected && !physicsActive && (
+          <TransformControls
+            object={selected}
+            mode={mode}
+            size={0.8}
+            // On mouse-up, not on every frame of the drag: an edit is a statement,
+            // and recording one per pointer move would make "how many edits to
+            // certification" meaningless as a number.
+            onMouseUp={() => recordDrag(selected)}
+          />
+        )}
       </Canvas>
       {showBalanceDebug && (
         <div className="balance-legend" role="status">
@@ -391,22 +425,40 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
           </div>
           {!hasBalanceEvidence ? (
             <div className="balance-legend__empty">
-              No stored contact evidence. Recertify this scene with certificate v1.3 or newer.
+              No stored contact evidence. Recertify this scene with certificate
+              v1.3 or newer.
             </div>
           ) : (
             <>
-              <div><span className="balance-key balance-key--contact" />contact samples</div>
-              <div><span className="balance-key balance-key--wrench" />3D contact normals</div>
-              <div><span className="balance-key balance-key--com" />centre of mass</div>
-              <div><span className="balance-key balance-key--region" />support region</div>
+              <div>
+                <span className="balance-key balance-key--contact" />
+                contact samples
+              </div>
+              <div>
+                <span className="balance-key balance-key--wrench" />
+                3D contact normals
+              </div>
+              <div>
+                <span className="balance-key balance-key--com" />
+                centre of mass
+              </div>
+              <div>
+                <span className="balance-key balance-key--region" />
+                support region
+              </div>
               {inspected && (
                 <div className="balance-legend__measurement">
                   {inspected.equilibrium_model === "contact_wrench_3d" ? (
                     <>
                       {inspected.wrench_contacts?.length ?? 0} 3D contacts ·{" "}
                       {inspected.non_horizontal_contact_count ?? 0} side contact
-                      {(inspected.non_horizontal_contact_count ?? 0) === 1 ? "" : "s"} ·{" "}
-                      {inspected.contact_force_feasible ? "feasible" : "infeasible"}
+                      {(inspected.non_horizontal_contact_count ?? 0) === 1
+                        ? ""
+                        : "s"}{" "}
+                      ·{" "}
+                      {inspected.contact_force_feasible
+                        ? "feasible"
+                        : "infeasible"}
                     </>
                   ) : (
                     <>
@@ -420,7 +472,9 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
             </>
           )}
           {!selectedObjectId && balanceChecks.length > 1 && (
-            <div className="balance-legend__hint">Select an object to isolate it.</div>
+            <div className="balance-legend__hint">
+              Select an object to isolate it.
+            </div>
           )}
         </div>
       )}

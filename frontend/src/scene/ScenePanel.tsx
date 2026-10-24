@@ -15,6 +15,7 @@ import { UploadScene } from "./UploadScene";
 interface Props {
   scenes: SceneSummary[];
   envelope?: SceneEnvelope;
+  onSceneSelected?: () => void;
 }
 
 /**
@@ -29,7 +30,7 @@ interface Props {
  * Export lives here for the same reason: it acts on the whole scene, not on the
  * selection and not on the verdict.
  */
-export function ScenePanel({ scenes, envelope }: Props) {
+export function ScenePanel({ scenes, envelope, onSceneSelected }: Props) {
   const sceneId = useSceneStore((s) => s.sceneId);
   const setSceneId = useSceneStore((s) => s.setSceneId);
   // Read to warn, not to block. An export of the committed scene is a legitimate
@@ -60,13 +61,18 @@ export function ScenePanel({ scenes, envelope }: Props) {
               type="button"
               className={`scene-item ${summary.id === sceneId ? "scene-item--active" : ""}`}
               aria-current={summary.id === sceneId ? "true" : undefined}
-              onClick={() => setSceneId(summary.id)}
+              onClick={() => {
+                setSceneId(summary.id);
+                onSceneSelected?.();
+              }}
             >
               <span className="scene-name">{summary.name}</span>
               <span
                 className={`dot dot--${summary.outcome === "ready" ? "pass" : "attention"}`}
                 role="img"
-                aria-label={summary.outcome === "ready" ? "ready" : "needs attention"}
+                aria-label={
+                  summary.outcome === "ready" ? "ready" : "needs attention"
+                }
                 title={
                   summary.outcome === "ready"
                     ? "ready"

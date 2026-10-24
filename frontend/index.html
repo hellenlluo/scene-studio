@@ -4,7 +4,32 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (() => {
+        const key = "scenestudio.theme";
+        let stored = null;
+        try {
+          stored = localStorage.getItem(key);
+        } catch {}
+        const theme = stored === "light" || stored === "dark" ? stored : "dark";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        background: #d8dcde;
+      }
+      html[data-theme="dark"],
+      html[data-theme="dark"] body,
+      html[data-theme="dark"] #root {
+        background: #292d30;
+      }
+    </style>
+    <title>SceneStudio</title>
   </head>
   <body>
     <div id="root"></div>

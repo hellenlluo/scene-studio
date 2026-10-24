@@ -216,7 +216,8 @@ export function CertificatePanel({ envelope, physics }: Props) {
       >
         {dirty ? "Uncommitted edits" : ready ? "Ready" : "Needs attention"}
       </p>
-      {!dirty && !ready &&
+      {!dirty &&
+        !ready &&
         envelope.spec.outcome_reasons.map((reason) => (
           <p className="note note--attention" key={reason}>
             {outcomeReason(reason)}
@@ -301,22 +302,23 @@ export function CertificatePanel({ envelope, physics }: Props) {
           Support changes are also reported: they happen before repair when a drag's
           stale support parent is re-derived from its new position. */}
       {commit.data &&
-        (commit.data.support_changes.length > 0 || commit.data.actions.length > 0) && (
-        <div className="note">
-          {commit.data.support_changes.map((change) => (
-            <div key={`support:${change.object_id}`}>
-              ↳ {supportChangeMessage(change, displayNames)}
-            </div>
-          ))}
-          {commit.data.actions.map((action, index) => (
-            <div key={index}>
-              {action.improved ? "✓" : "✗"} {action.kind.replace(/_/g, " ")}{" "}
-              {displayNames.get(action.target_id) ?? action.target_id} by{" "}
-              {(action.magnitude * 1000).toFixed(0)} mm
-            </div>
-          ))}
-        </div>
-      )}
+        (commit.data.support_changes.length > 0 ||
+          commit.data.actions.length > 0) && (
+          <div className="note">
+            {commit.data.support_changes.map((change) => (
+              <div key={`support:${change.object_id}`}>
+                ↳ {supportChangeMessage(change, displayNames)}
+              </div>
+            ))}
+            {commit.data.actions.map((action, index) => (
+              <div key={index}>
+                {action.improved ? "✓" : "✗"} {action.kind.replace(/_/g, " ")}{" "}
+                {displayNames.get(action.target_id) ?? action.target_id} by{" "}
+                {(action.magnitude * 1000).toFixed(0)} mm
+              </div>
+            ))}
+          </div>
+        )}
       {commitPhysics.data && (
         <div className="note">
           ✓ paused physics pose committed and recertified
@@ -362,16 +364,28 @@ export function CertificatePanel({ envelope, physics }: Props) {
                     : "▶ run physics"}
         </button>
         {physics.state === "diverged" && (
-          <button type="button" className="physics-reset" onClick={physics.disable}>
+          <button
+            type="button"
+            className="physics-reset"
+            onClick={physics.disable}
+          >
             ↩ restore {physics.usingDraft ? "edited" : "stored"} pose
           </button>
         )}
         {physics.state === "running" && (
           <>
-            <button type="button" className="physics-reset" onClick={physics.reset}>
+            <button
+              type="button"
+              className="physics-reset"
+              onClick={physics.reset}
+            >
               ↺ reset to {physics.usingDraft ? "edits" : "start"}
             </button>
-            <button type="button" className="physics-reset" onClick={physics.disable}>
+            <button
+              type="button"
+              className="physics-reset"
+              onClick={physics.disable}
+            >
               ↩ stop &amp; restore {physics.usingDraft ? "edits" : "start"}
             </button>
             <span className="note">
@@ -392,10 +406,18 @@ export function CertificatePanel({ envelope, physics }: Props) {
                 ? "committing…"
                 : `commit paused pose (${pausedPoseEdits.length})`}
             </button>
-            <button type="button" className="physics-reset" onClick={physics.reset}>
+            <button
+              type="button"
+              className="physics-reset"
+              onClick={physics.reset}
+            >
               ↺ reset to {physics.usingDraft ? "edits" : "start"}
             </button>
-            <button type="button" className="physics-reset" onClick={physics.disable}>
+            <button
+              type="button"
+              className="physics-reset"
+              onClick={physics.disable}
+            >
               ↩ restore {physics.usingDraft ? "edited" : "stored"} pose
             </button>
             <span className="note">
@@ -415,9 +437,8 @@ export function CertificatePanel({ envelope, physics }: Props) {
         {physics.error && <p className="reasons-degraded">{physics.error}</p>}
         {physics.violations.length > 0 && (
           <p className="note note--error">
-            live physics crossed the certificate limit: {physics.violations
-              .map(liveViolationMessage)
-              .join(", ")}
+            live physics crossed the certificate limit:{" "}
+            {physics.violations.map(liveViolationMessage).join(", ")}
           </p>
         )}
       </div>
@@ -436,17 +457,23 @@ export function CertificatePanel({ envelope, physics }: Props) {
           {diagnostics.settled ? "settled" : "not settled"}
         </span>
         {!diagnostics.settled && diagnostics.max_settle_drift_m > 0 && (
-          <> — worst object moves {(diagnostics.max_settle_drift_m * 1000).toFixed(0)} mm
-          under gravity</>
+          <>
+            {" "}
+            — worst object moves{" "}
+            {(diagnostics.max_settle_drift_m * 1000).toFixed(0)} mm under
+            gravity
+          </>
         )}
       </p>
 
       <h3 className="list-heading">Objects</h3>
       <ul className="objects">
         {envelope.spec.graph.objects.map((object) => {
-          const display = displayNames.get(object.object_id) ?? object.object_id;
+          const display =
+            displayNames.get(object.object_id) ?? object.object_id;
           const liveViolation = liveViolations.get(object.object_id);
-          const failed = failing.has(object.object_id) || liveViolation !== undefined;
+          const failed =
+            failing.has(object.object_id) || liveViolation !== undefined;
           const selected = object.object_id === selectedObjectId;
           return (
             <li key={object.object_id}>
@@ -479,9 +506,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
               {/* The id is the filename the meshes are written under, so it is what
                   you need to go looking on disk — and nothing else. It stays out of
                   the list and appears once the row is open. */}
-              {selected && (
-                <p className="object-id">{object.object_id}</p>
-              )}
+              {selected && <p className="object-id">{object.object_id}</p>}
               {selected && object.degradation_reason && (
                 <ul className="reasons">
                   <li className="reasons-degraded">
@@ -491,14 +516,17 @@ export function CertificatePanel({ envelope, physics }: Props) {
               )}
               {selected && (
                 <ul className="reasons">
-                  {reasonsFor(object.object_id, certificate, displayNames).map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
+                  {reasonsFor(object.object_id, certificate, displayNames).map(
+                    (reason) => (
+                      <li key={reason}>{reason}</li>
+                    ),
+                  )}
                   {liveViolation && (
                     <li>
                       live physics reaches{" "}
                       {(liveViolation.displacementM * 100).toFixed(1)} cm and{" "}
-                      {liveViolation.tiltDeg.toFixed(1)}° of tilt from its stored pose
+                      {liveViolation.tiltDeg.toFixed(1)}° of tilt from its
+                      stored pose
                     </li>
                   )}
                   {!failed && <li className="reasons-ok">passes every axis</li>}

@@ -4,7 +4,7 @@ import {
   keepPreviousData,
   useQuery,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "./api/client";
 import { CertificatePanel } from "./certify/CertificatePanel";
@@ -13,13 +13,18 @@ import { ScenePanel } from "./scene/ScenePanel";
 import { Toolbar } from "./scene/Toolbar";
 import { Viewer } from "./scene/Viewer";
 import { useSceneStore } from "./scene/store";
+import { useTheme } from "./theme";
 
 const queryClient = new QueryClient();
+
+type WorkspaceView = "scene" | "browser" | "certificate";
 
 function SceneStudio() {
   const sceneId = useSceneStore((s) => s.sceneId);
   const setSceneId = useSceneStore((s) => s.setSceneId);
   const edits = useSceneStore((s) => s.edits);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("scene");
+  const { theme, toggleTheme } = useTheme();
 
   const scenes = useQuery({ queryKey: ["scenes"], queryFn: api.listScenes });
   const scene = useQuery({
@@ -52,14 +57,90 @@ function SceneStudio() {
     if (sceneId === null && scenes.data?.length) setSceneId(scenes.data[0].id);
   }, [sceneId, scenes.data, setSceneId]);
 
+  // The compact layout behaves like three adjacent pages. Escape is the quick,
+  // keyboard-accessible route back to the canvas from either full-screen panel.
+  useEffect(() => {
+    if (workspaceView === "scene") return;
+    const returnToScene = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setWorkspaceView("scene");
+    };
+    window.addEventListener("keydown", returnToScene);
+    return () => window.removeEventListener("keydown", returnToScene);
+  }, [workspaceView]);
+
   return (
     <div className="app">
       <header className="app-header">
-        <h1>SceneStudio</h1>
+        <div className="compact-header-slot compact-header-slot--left">
+          {workspaceView === "scene" && (
+            <button
+              type="button"
+              className="compact-view-button"
+              onClick={() => setWorkspaceView("browser")}
+            >
+              Scenes
+            </button>
+          )}
+          {workspaceView === "certificate" && (
+            <button
+              type="button"
+              className="compact-view-button"
+              onClick={() => setWorkspaceView("scene")}
+            >
+              ← 3D scene
+            </button>
+          )}
+        </div>
+        <div className="app-brand">
+          <h1>SceneStudio</h1>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          >
+            {theme === "light" ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8 8.5 8.5 0 1 0 20.2 15.2Z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.5" />
+                <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" />
+              </svg>
+            )}
+          </button>
+        </div>
+        <div className="compact-header-slot compact-header-slot--right">
+          {workspaceView === "scene" && (
+            <button
+              type="button"
+              className="compact-view-button"
+              onClick={() => setWorkspaceView("certificate")}
+              disabled={!scene.data}
+            >
+              Certificate
+            </button>
+          )}
+          {workspaceView === "browser" && (
+            <button
+              type="button"
+              className="compact-view-button"
+              onClick={() => setWorkspaceView("scene")}
+            >
+              3D scene →
+            </button>
+          )}
+        </div>
       </header>
 
-      <main className="workspace">
-        <ScenePanel scenes={scenes.data ?? []} envelope={scene.data} />
+      <main className="workspace" data-compact-view={workspaceView}>
+        <ScenePanel
+          scenes={scenes.data ?? []}
+          envelope={scene.data}
+          onSceneSelected={() => setWorkspaceView("scene")}
+        />
 
         <div className="stage">
           <Toolbar />
@@ -79,6 +160,7 @@ function SceneStudio() {
                 envelope={scene.data}
                 poses={physics.poses}
                 physicsActive={physics.state !== "idle"}
+                theme={theme}
               />
             )}
           </div>

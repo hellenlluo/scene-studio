@@ -54,24 +54,24 @@ function SceneStudio() {
 
   return (
     <div className="app">
-      <header>
+      <header className="app-header">
         <h1>SceneStudio</h1>
       </header>
 
-      <main>
+      <main className="workspace">
         <ScenePanel scenes={scenes.data ?? []} envelope={scene.data} />
 
         <div className="stage">
           <Toolbar />
           <div className="stage-view">
             {scenes.isError && (
-              <div className="viewer-empty">
-                cannot reach the backend — is uvicorn running on :8000?
+              <div className="viewer-empty" role="alert">
+                Cannot reach the backend — is uvicorn running on :8000?
               </div>
             )}
             {scenes.data?.length === 0 && (
-              <div className="viewer-empty">
-                no scenes yet — upload a photo from the Scenes panel
+              <div className="viewer-empty" role="status">
+                No scenes yet — upload a photo from the Scenes panel
               </div>
             )}
             {scene.data && (

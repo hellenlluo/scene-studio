@@ -39,6 +39,7 @@ export function ScenePanel({ scenes, envelope }: Props) {
 
   const graph = envelope?.spec.graph;
   const offset = graph?.world_offset_m;
+  const currentSceneName = scenes.find((scene) => scene.id === sceneId)?.name;
 
   // Progress is local rather than mutation state because it arrives during the
   // one `mutationFn`, which react-query has no view inside of.
@@ -49,20 +50,23 @@ export function ScenePanel({ scenes, envelope }: Props) {
   });
 
   return (
-    <aside className="panel panel--left">
-      <h2>Scenes</h2>
+    <aside className="panel panel--left" aria-label="Scene browser">
       <UploadScene />
+      <h2 className="list-heading">Scenes</h2>
       <ul className="scene-list">
         {scenes.map((summary) => (
           <li key={summary.id}>
             <button
               type="button"
               className={`scene-item ${summary.id === sceneId ? "scene-item--active" : ""}`}
+              aria-current={summary.id === sceneId ? "true" : undefined}
               onClick={() => setSceneId(summary.id)}
             >
               <span className="scene-name">{summary.name}</span>
               <span
                 className={`dot dot--${summary.outcome === "ready" ? "pass" : "attention"}`}
+                role="img"
+                aria-label={summary.outcome === "ready" ? "ready" : "needs attention"}
                 title={
                   summary.outcome === "ready"
                     ? "ready"
@@ -77,7 +81,9 @@ export function ScenePanel({ scenes, envelope }: Props) {
 
       {envelope && (
         <>
-          <h2>Scene</h2>
+          <h2 className="scene-title" title={currentSceneName}>
+            {currentSceneName ?? "Scene"}
+          </h2>
           <dl className="facts">
             <dt>source</dt>
             <dd title={envelope.spec.image_path ?? undefined}>

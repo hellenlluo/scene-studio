@@ -192,7 +192,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
   const statuses = axisStatuses(certificate);
 
   return (
-    <aside className="panel">
+    <aside className="panel" aria-label="Scene certificate">
       <h2>Certificate</h2>
 
       <ul className="axes">
@@ -212,8 +212,9 @@ export function CertificatePanel({ envelope, physics }: Props) {
           things and the design keeps them in separate channels. */}
       <p
         className={`verdict verdict--${dirty ? "stale" : ready ? "pass" : "attention"}`}
+        aria-live="polite"
       >
-        {dirty ? "UNCOMMITTED EDITS" : ready ? "READY" : "NEEDS ATTENTION"}
+        {dirty ? "Uncommitted edits" : ready ? "Ready" : "Needs attention"}
       </p>
       {!dirty && !ready &&
         envelope.spec.outcome_reasons.map((reason) => (
@@ -440,7 +441,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
         )}
       </p>
 
-      <h3>Objects</h3>
+      <h3 className="list-heading">Objects</h3>
       <ul className="objects">
         {envelope.spec.graph.objects.map((object) => {
           const display = displayNames.get(object.object_id) ?? object.object_id;
@@ -454,6 +455,7 @@ export function CertificatePanel({ envelope, physics }: Props) {
                 className={`object ${failed ? "object--failed" : ""} ${
                   selected ? "object--selected" : ""
                 }`}
+                aria-pressed={selected}
                 onClick={() => select(selected ? null : object.object_id)}
               >
                 <span>

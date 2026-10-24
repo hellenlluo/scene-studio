@@ -296,7 +296,7 @@ export function Viewer({ envelope, poses, physicsActive = false }: Props) {
   return (
     <div className="viewer-shell">
       <Canvas shadows camera={CAMERA} onPointerMissed={() => select(null)}>
-      <color attach="background" args={["#15171c"]} />
+        <color attach="background" args={["#0d1117"]} />
 
       {/* Reconstructed base colour maps are dark to begin with — they carry the
           photo's own shading baked in, so the renderer's lighting multiplies shadow by

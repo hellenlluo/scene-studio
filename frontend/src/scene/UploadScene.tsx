@@ -70,15 +70,19 @@ export function UploadScene() {
           ? "uploading…"
           : busy
             ? `processing${stage ? `: ${stage}` : "…"}`
-            : "+ upload photo"}
+            : "Upload photo"}
       </button>
       <p className="note">JPEG, PNG or WebP · maximum 20 MB</p>
       {job.data?.state === "failed" && (
-        <p className="note note--error">
+        <p className="note note--error" role="alert">
           {job.data.error ?? "reconstruction failed"}
         </p>
       )}
-      {error && <p className="note note--error">{String(error)}</p>}
+      {error && (
+        <p className="note note--error" role="alert">
+          {String(error)}
+        </p>
+      )}
     </div>
   );
 }
